@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include "header/cpu/interrupt.h"
 #include "header/driver/keyboard.h"
-// #include "header/text/framebuffer.h" must be changed
+#include "header/text/framebuffer.h"
 
 // Exception report, written on the last row
 #define EXCEPTION_REPORT_ROW  (FRAMEBUFFER_HEIGHT - 1)
@@ -27,7 +27,6 @@ uint32_t interrupt_get_count(uint8_t int_vector) {
         return 0;
     return interrupt_count[int_vector];
 }
-
 
 static uint8_t report_puts(uint8_t col, const char *str) {
     while (*str && col < FRAMEBUFFER_WIDTH)

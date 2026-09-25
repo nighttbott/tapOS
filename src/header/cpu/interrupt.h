@@ -154,4 +154,19 @@ void pic_remap(void);
  */
 void main_interrupt_handler(struct InterruptFrame frame);
 
+// Vector with ISR stub, same as ISR_STUB_TABLE_LIMIT in idt.h
+#define INTERRUPT_VECTOR_COUNT 64
+
+// Software interrupt for testing, handler just return
+#define INT_VECTOR_BREAKPOINT  0x03
+#define INT_VECTOR_TEST        0x04
+
+/**
+ * Get how many times an interrupt vector has been handled
+ *
+ * @param int_vector Interrupt vector (0x00 - 0x3F)
+ * @return Counter value, 0 if vector out of range
+ */
+uint32_t interrupt_get_count(uint8_t int_vector);
+
 #endif

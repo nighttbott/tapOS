@@ -1,5 +1,3 @@
-section .text
-
 extern main_interrupt_handler
 global isr_stub_table
 

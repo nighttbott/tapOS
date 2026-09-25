@@ -3,10 +3,15 @@
 #include <stddef.h>
 #include "header/cpu/portio.h"
 
+/** x86 inb/outb:
+ * @param dx target port 
+ * @param al input/output byte
+ */
+
 void out(uint16_t port, uint8_t data) {
     __asm__ volatile(
         "outb %0, %1"
-        :
+        : // <Empty output operand>
         : "a"(data), "Nd"(port)
     );
 }
