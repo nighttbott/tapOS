@@ -1,11 +1,13 @@
+section .text
+
 extern main_interrupt_handler
 global isr_stub_table
 
 ; Generic handler section for interrupt
 call_generic_handler:
     ; Expected stack state at this label
-    ; [esp + 20] ss  (Only for inter-privilege)
-    ; [esp + 16] esp (Only for inter-privilege)
+    ; [esp + 24] ss  (Only for inter-privilege)
+    ; [esp + 20] esp (Only for inter-privilege)
     ; [esp + 16] eflags
     ; [esp + 12] cs
     ; [esp + 8 ] eip
