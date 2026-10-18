@@ -1,4 +1,5 @@
 #include "header/driver/keyboard.h"
+#include "header/cpu/interrupt.h"
 #include "header/cpu/portio.h"
 #include "header/stdlib/string.h"
 
@@ -49,25 +50,26 @@ void get_keyboard_buffer(char *buf) {
     keyboard_state.keyboard_buffer = 0;
 }
 
-void keyboard_handle_scancode(uint8_t scancode) {
+void keyboard_isr(void) {
+    uint8_t scancode = in(KEYBOARD_DATA_PORT);
+    pic_ack(PIC1_OFFSET + IRQ_KEYBOARD);
     if (!keyboard_state.keyboard_input_on) {
         return;
     }
+
     if (scancode == EXTENDED_SCANCODE_BYTE) {
         keyboard_state.read_extended_mode = true;
         return;
     }
+
     if (keyboard_state.read_extended_mode) {
         keyboard_state.read_extended_mode = false;
         return;
     }
+
     if ((scancode & 0x80U) != 0) {
         return;
     }
 
     keyboard_state.keyboard_buffer = keyboard_scancode_1_to_ascii_map[scancode];
-}
-
-void keyboard_isr(void) {
-    keyboard_handle_scancode(in(KEYBOARD_DATA_PORT));
 }
