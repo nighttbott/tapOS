@@ -8,7 +8,7 @@ void initialize_idt(void) {
     for(int i = 0; i < ISR_STUB_TABLE_LIMIT; i++){
         set_interrupt_gate(i, isr_stub_table[i], GDT_KERNEL_CODE_SEGMENT_SELECTOR, 0);
     }
-    uint32_t interrupt_descriptor_table_address = (uint32_t) &interrupt_descriptor_table;
+    uintptr_t interrupt_descriptor_table_address = (uintptr_t) &interrupt_descriptor_table;
     _idt_idtr.size = sizeof(interrupt_descriptor_table) - 1;
     _idt_idtr.offset = interrupt_descriptor_table_address;
     __asm__ volatile("lidt %0" : : "m"(_idt_idtr));
@@ -22,7 +22,7 @@ void set_interrupt_gate(
     uint8_t  privilege
 ) {
     struct IDTGate *idt_int_gate = &interrupt_descriptor_table.table[int_vector];
-    uint32_t handler_address_uint = (uint32_t) handler_address;
+    uintptr_t handler_address_uint = (uintptr_t) handler_address;
 
     // Target system 32-bit and flag this as valid interrupt gate
     idt_int_gate->offset_low  = handler_address_uint & 0xFFFF;
@@ -33,5 +33,5 @@ void set_interrupt_gate(
     idt_int_gate->DPL         = privilege;
     idt_int_gate->gate_32     = 1;
     idt_int_gate->valid_bit   = 1;
-    idt_int_gate->offset_up  = handler_address_uint >> 16;
+    idt_int_gate->offset_up   = handler_address_uint >> 16;
 }
