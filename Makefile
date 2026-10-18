@@ -6,7 +6,7 @@ CC            = gcc
 # Directory
 SOURCE_FOLDER = src
 OUTPUT_FOLDER = bin
-ISO_NAME      = tapOS
+ISO_NAME      = OS2025
 DISK_NAME     = storage
 
 # Flags
@@ -19,17 +19,27 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 
 
 run: all
-	qemu-system-i386 -s -S -drive file=storage.bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	qemu-system-i386 -s -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME),format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
 all: build
 build: iso
 clean:
-	rm -rf *.o *.iso $(OUTPUT_FOLDER)/kernel
+	rm -rf $(OUTPUT_FOLDER)/*.o $(OUTPUT_FOLDER)/$(ISO_NAME).iso $(OUTPUT_FOLDER)/kernel
 
 
 
 kernel:
 	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/kernel-entrypoint.s -o $(OUTPUT_FOLDER)/kernel-entrypoint.o
-	@$(CC) -ffreestanding $(DEBUG_CFLAG) $(Sfilter-out -ffreestanding, $(TRIP_CFLAG)) $(WARNING_CFLAG) -m32 -c -Isrc $(SOURCE_FOLDER)/kernel.c -o $(OUTPUT_FOLDER)/kernel.o
+	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/cpu/intsetup.s -o $(OUTPUT_FOLDER)/intsetup.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/kernel.c -o $(OUTPUT_FOLDER)/kernel.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/gdt.c -o $(OUTPUT_FOLDER)/gdt.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/idt.c -o $(OUTPUT_FOLDER)/idt.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/interrupt.c -o $(OUTPUT_FOLDER)/interrupt.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/portio.c -o $(OUTPUT_FOLDER)/portio.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/driver/keyboard.c -o $(OUTPUT_FOLDER)/keyboard.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/driver/disk.c -o $(OUTPUT_FOLDER)/disk.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/text/framebuffer.c -o $(OUTPUT_FOLDER)/framebuffer.o
+	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/stdlib/string.c -o $(OUTPUT_FOLDER)/string.o
+	@$(LIN) $(LFLAGS) $(OUTPUT_FOLDER)/*.o -o $(OUTPUT_FOLDER)/kernel
 	@$(LIN) $(LFLAGS) bin/*.o -o $(OUTPUT_FOLDER)/kernel
 	@echo Linking object files and generate elf32...
 	@rm -f *.o
@@ -47,9 +57,10 @@ iso: kernel
 								-input-charset utf8       	\
 								-quiet                    	\
 								-boot-info-table          	\
-								-o tapOS.iso             	\
+								-o OS2025.iso             	\
 								iso 
 	@rm -r $(OUTPUT_FOLDER)/iso/
 
 disk:
+	@mkdir -p $(OUTPUT_FOLDER)
 	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
