@@ -52,7 +52,7 @@ void get_keyboard_buffer(char *buf) {
 
 void keyboard_isr(void) {
     uint8_t scancode = in(KEYBOARD_DATA_PORT);
-    pic_ack(PIC1_OFFSET + IRQ_KEYBOARD);
+    pic_ack(IRQ_KEYBOARD);
     if (!keyboard_state.keyboard_input_on) {
         return;
     }
