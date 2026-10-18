@@ -9,6 +9,13 @@ void* memset(void *s, int c, size_t n) {
     return s;
 }
 
+void* memsetw(void *dest, uint16_t val, size_t count) {
+    volatile uint16_t *temp = (volatile uint16_t *) dest;
+    for (size_t i = 0; i < count; i++)
+        temp[i] = val;
+    return dest;
+}
+
 void* memcpy(void* restrict dest, const void* restrict src, size_t n) {
     uint8_t *dstbuf       = (uint8_t*) dest;
     const uint8_t *srcbuf = (const uint8_t*) src;

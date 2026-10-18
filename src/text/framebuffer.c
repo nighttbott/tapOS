@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "header/stdlib/string.h"
 #include "header/text/framebuffer.h"
 #include "header/stdlib/string.h"
 #include "header/cpu/portio.h"
@@ -33,13 +34,9 @@ void framebuffer_write(uint8_t row, uint8_t col, char c, uint8_t fg, uint8_t bg)
 }
 
 void framebuffer_clear(void) {
-    uint8_t row;
-    uint8_t col;
+    uint16_t blank = (0x07 << 8) | 0x00;
+    size_t total_pixel = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
-    for (row = 0; row < FRAMEBUFFER_HEIGHT; row++) {
-        for (col = 0; col < FRAMEBUFFER_WIDTH; col++) {
-            framebuffer_write(row, col, ' ', 0x07, 0x00);
-        }
-    }
+    memsetw((void *) FRAMEBUFFER_MEMORY_OFFSET, blank, total_pixel);
     framebuffer_set_cursor(0, 0);
 }

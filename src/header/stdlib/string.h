@@ -16,6 +16,8 @@
 */
 void* memset(void *s, int c, size_t n);
 
+void* memsetw(void *dets, uint16_t val, size_t count);
+
 /**
  * C standard memcpy, check man memcpy or
  * https://man7.org/linux/man-pages/man3/memcpy.3.html for more details
