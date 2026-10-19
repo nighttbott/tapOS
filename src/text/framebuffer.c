@@ -40,3 +40,15 @@ void framebuffer_clear(void) {
     memsetw((void *) FRAMEBUFFER_MEMORY_OFFSET, blank, total_pixel);
     framebuffer_set_cursor(0, 0);
 }
+
+void framebuffer_scroll_up(void) {
+    uint16_t blank = (0x07 << 8) | 0x00;
+    uint32_t i, j;
+    for (i = 1; i < FRAMEBUFFER_HEIGHT; ++i){
+        for (j = 0; j < FRAMEBUFFER_WIDTH; ++j){
+            uint32_t position = (i * FRAMEBUFFER_WIDTH + j);
+            framebuffer_write(i - 1, j, FRAMEBUFFER_MEMORY_OFFSET[position * 2U], FRAMEBUFFER_MEMORY_OFFSET[position * 2U + 1U] & 0x0F, FRAMEBUFFER_MEMORY_OFFSET[position * 2U + 1U] >> 4);
+        }
+    }
+    memsetw((void *) (FRAMEBUFFER_MEMORY_OFFSET + (FRAMEBUFFER_HEIGHT - 1U) * FRAMEBUFFER_WIDTH * 2U), blank, FRAMEBUFFER_WIDTH);
+}
