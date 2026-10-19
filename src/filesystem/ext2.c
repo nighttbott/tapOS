@@ -14,6 +14,22 @@ const uint8_t fs_signature[BLOCK_SIZE] = {
     [BLOCK_SIZE-1] = 'k',
 };
 
+/* Cached filesystem metadata used after initialization. */
+static struct EXT2Superblock superblock;
+static struct EXT2BlockGroupDescriptorTable bgd_table;
+
+#define EXT2_ROOT_INODE 1u
+#define EXT2_SUPERBLOCK_BLOCK 1u
+#define EXT2_BGD_TABLE_BLOCK 2u
+#define EXT2_FIRST_METADATA_BLOCK 3u
+#define EXT2_METADATA_BLOCKS_PER_GROUP \
+    (2u + INODES_TABLE_BLOCK_COUNT)
+#define EXT2_TOTAL_BLOCKS (DISK_SPACE / BLOCK_SIZE)
+/* Data starts after the signature, superblock, BGD, and group metadata. */
+#define EXT2_FIRST_DATA_BLOCK \
+    (EXT2_FIRST_METADATA_BLOCK + \
+     GROUPS_COUNT * EXT2_METADATA_BLOCKS_PER_GROUP)
+
 #define EXT2_DIRECT_BLOCK_COUNT 12u
 #define EXT2_POINTERS_PER_BLOCK (BLOCK_SIZE / sizeof(uint32_t))
 #define EXT2_SINGLE_INDIRECT_START EXT2_DIRECT_BLOCK_COUNT
@@ -26,6 +42,197 @@ struct EXT2ReadContext {
     struct EXT2Superblock superblock;
     struct EXT2BlockGroupDescriptorTable bgd_table;
 };
+
+static void ext2_set_bitmap_bit(struct BlockBuffer *bitmap,
+                                uint32_t index) {
+    bitmap->buf[index / 8u] |= (uint8_t)(1u << (index % 8u));
+}
+
+uint32_t inode_to_bgd(uint32_t inode) {
+    /* Inode numbering starts from 1, while array indexes start from 0. */
+    return (inode - 1u) / INODES_PER_GROUP;
+}
+
+uint32_t inode_to_local(uint32_t inode) {
+    return (inode - 1u) % INODES_PER_GROUP;
+}
+
+void sync_node(struct EXT2Inode *node, uint32_t inode) {
+    struct BlockBuffer inode_table_block;
+    uint32_t bgd_index;
+    uint32_t local_index;
+    uint32_t table_block;
+    uint32_t table_offset;
+
+    if (node == NULL || inode == 0 ||
+        inode > INODES_PER_GROUP * GROUPS_COUNT) {
+        return;
+    }
+
+    bgd_index = inode_to_bgd(inode);
+    local_index = inode_to_local(inode);
+    table_block = bgd_table.table[bgd_index].bg_inode_table +
+                  local_index / INODES_PER_TABLE;
+    table_offset = (local_index % INODES_PER_TABLE) * INODE_SIZE;
+
+    read_blocks(&inode_table_block, table_block, 1);
+    memcpy(inode_table_block.buf + table_offset, node, sizeof(*node));
+    write_blocks(&inode_table_block, table_block, 1);
+}
+
+void init_directory_table(struct EXT2Inode *node, uint32_t inode,
+                          uint32_t parent_inode) {
+    struct BlockBuffer directory_block;
+    struct EXT2DirectoryEntry entry;
+    uint32_t offset = 0;
+
+    if (node == NULL || node->i_block[0] == 0 || inode == 0 ||
+        parent_inode == 0) {
+        return;
+    }
+
+    memset(&directory_block, 0, sizeof(directory_block));
+
+    memset(&entry, 0, sizeof(entry));
+    entry.inode = inode;
+    entry.rec_len = get_entry_record_len(1);
+    entry.name_len = 1;
+    entry.file_type = EXT2_FT_DIR;
+    memcpy(directory_block.buf + offset, &entry, sizeof(entry));
+    directory_block.buf[offset + sizeof(entry)] = '.';
+    offset += entry.rec_len;
+
+    memset(&entry, 0, sizeof(entry));
+    entry.inode = parent_inode;
+    entry.rec_len = get_entry_record_len(2);
+    entry.name_len = 2;
+    entry.file_type = EXT2_FT_DIR;
+    memcpy(directory_block.buf + offset, &entry, sizeof(entry));
+    memcpy(directory_block.buf + offset + sizeof(entry), "..", 2);
+    offset += entry.rec_len;
+
+    memset(&entry, 0, sizeof(entry));
+    /* The unused record fills the rest of the block for future children. */
+    entry.rec_len = (uint16_t)(BLOCK_SIZE - offset);
+    memcpy(directory_block.buf + offset, &entry, sizeof(entry));
+
+    node->i_mode = EXT2_S_IFDIR;
+    node->i_size = BLOCK_SIZE;
+    node->i_blocks = 1;
+    write_blocks(&directory_block, node->i_block[0], 1);
+}
+
+bool is_empty_storage(void) {
+    struct BlockBuffer boot_sector;
+
+    read_blocks(&boot_sector, BOOT_SECTOR, 1);
+    return memcmp(boot_sector.buf, fs_signature, BLOCK_SIZE) != 0;
+}
+
+void create_ext2(void) {
+    struct BlockBuffer block;
+    struct EXT2Inode root_inode;
+    uint32_t used_blocks = EXT2_FIRST_DATA_BLOCK + 1u;
+
+    memset(&superblock, 0, sizeof(superblock));
+    superblock.s_inodes_count = INODES_PER_GROUP * GROUPS_COUNT;
+    superblock.s_blocks_count = EXT2_TOTAL_BLOCKS;
+    superblock.s_free_blocks_count = EXT2_TOTAL_BLOCKS - used_blocks;
+    superblock.s_free_inodes_count = superblock.s_inodes_count - 1u;
+    superblock.s_first_data_block = 0;
+    superblock.s_first_ino = EXT2_ROOT_INODE + 1u;
+    superblock.s_blocks_per_group = BLOCKS_PER_GROUP;
+    superblock.s_frags_per_group = BLOCKS_PER_GROUP;
+    superblock.s_inodes_per_group = INODES_PER_GROUP;
+    superblock.s_magic = EXT2_SUPER_MAGIC;
+
+    memset(&bgd_table, 0, sizeof(bgd_table));
+    for (uint32_t group = 0; group < GROUPS_COUNT; group++) {
+        struct EXT2BlockGroupDescriptor *descriptor =
+            &bgd_table.table[group];
+        uint32_t metadata_start = EXT2_FIRST_METADATA_BLOCK +
+                                  group * EXT2_METADATA_BLOCKS_PER_GROUP;
+        uint32_t group_start = group * BLOCKS_PER_GROUP;
+        uint32_t group_end = group_start + BLOCKS_PER_GROUP;
+        uint32_t group_used_blocks = 0;
+
+        /* Each group owns one block bitmap, one inode bitmap, and an inode table. */
+        descriptor->bg_block_bitmap = metadata_start;
+        descriptor->bg_inode_bitmap = metadata_start + 1u;
+        descriptor->bg_inode_table = metadata_start + 2u;
+
+        if (used_blocks > group_start) {
+            uint32_t used_end = used_blocks < group_end ?
+                                used_blocks : group_end;
+            group_used_blocks = used_end - group_start;
+        }
+        descriptor->bg_free_blocks_count =
+            (uint16_t)(BLOCKS_PER_GROUP - group_used_blocks);
+        descriptor->bg_free_inodes_count = INODES_PER_GROUP;
+    }
+    bgd_table.table[0].bg_free_inodes_count--;
+    bgd_table.table[0].bg_used_dirs_count = 1;
+
+    /* Initialize allocation bitmaps and inode tables for every group. */
+    for (uint32_t group = 0; group < GROUPS_COUNT; group++) {
+        const struct EXT2BlockGroupDescriptor *descriptor =
+            &bgd_table.table[group];
+        uint32_t group_start = group * BLOCKS_PER_GROUP;
+
+        memset(&block, 0, sizeof(block));
+        /* A block bitmap bit represents an offset inside its block group. */
+        for (uint32_t absolute_block = group_start;
+             absolute_block < used_blocks &&
+             absolute_block < group_start + BLOCKS_PER_GROUP;
+             absolute_block++) {
+            ext2_set_bitmap_bit(&block, absolute_block - group_start);
+        }
+        write_blocks(&block, descriptor->bg_block_bitmap, 1);
+
+        memset(&block, 0, sizeof(block));
+        if (group == 0) {
+            ext2_set_bitmap_bit(&block, EXT2_ROOT_INODE - 1u);
+        }
+        write_blocks(&block, descriptor->bg_inode_bitmap, 1);
+
+        memset(&block, 0, sizeof(block));
+        for (uint32_t table_index = 0;
+             table_index < INODES_TABLE_BLOCK_COUNT;
+             table_index++) {
+            write_blocks(&block, descriptor->bg_inode_table + table_index, 1);
+        }
+    }
+
+    memset(&root_inode, 0, sizeof(root_inode));
+    root_inode.i_block[0] = EXT2_FIRST_DATA_BLOCK;
+    init_directory_table(&root_inode, EXT2_ROOT_INODE, EXT2_ROOT_INODE);
+    sync_node(&root_inode, EXT2_ROOT_INODE);
+
+    memset(&block, 0, sizeof(block));
+    memcpy(block.buf, &superblock, sizeof(superblock));
+    write_blocks(&block, EXT2_SUPERBLOCK_BLOCK, 1);
+
+    memset(&block, 0, sizeof(block));
+    memcpy(block.buf, &bgd_table, sizeof(bgd_table));
+    write_blocks(&block, EXT2_BGD_TABLE_BLOCK, 1);
+
+    /* Write the signature last so an interrupted format is retried. */
+    write_blocks(fs_signature, BOOT_SECTOR, 1);
+}
+
+void initialize_filesystem_ext2(void) {
+    struct BlockBuffer block;
+
+    if (is_empty_storage()) {
+        create_ext2();
+        return;
+    }
+
+    read_blocks(&block, EXT2_SUPERBLOCK_BLOCK, 1);
+    memcpy(&superblock, block.buf, sizeof(superblock));
+    read_blocks(&block, EXT2_BGD_TABLE_BLOCK, 1);
+    memcpy(&bgd_table, block.buf, sizeof(bgd_table));
+}
 
 static bool ext2_read_context_init(struct EXT2ReadContext *context) {
     struct BlockBuffer block;

@@ -8,6 +8,7 @@
 #include "header/kernel-entrypoint.h"
 #include "header/driver/disk.h"
 #include "header/stdlib/string.h"
+#include "header/filesystem/ext2.h"
 
 
 void kernel_setup(void) {
@@ -17,6 +18,7 @@ void kernel_setup(void) {
     activate_keyboard_interrupt();
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);
+    initialize_filesystem_ext2();
    
     uint32_t row = 0;
     uint32_t col = 0;
@@ -78,4 +80,3 @@ void kernel_setup(void) {
         framebuffer_set_cursor(row, col);
     }
 }
-
