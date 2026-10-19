@@ -51,13 +51,13 @@ static void exception_write_text(uint8_t row, uint8_t col, const char *text) {
     }
 }
 
-static void exception_write_hex(uint8_t row, uint8_t col, uint8_t value) {
+static void exception_write_hex(uint8_t row, uint8_t col, uint32_t value) {
     const char digits[] = "0123456789ABCDEF";
 
     for (uint32_t i = 0; i < 8; ++i){
         uint32_t shift = (7U - i) * 4U;
         uint8_t digit = (value >> shift) & 0x0F;
-        framebuffer_write(row, col, digits[digit], 0x0F, 0x00);
+        framebuffer_write(row, col + i, digits[digit], 0x0F, 0x00);
     }
 }
 
