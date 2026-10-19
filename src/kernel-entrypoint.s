@@ -44,8 +44,10 @@ load_gdt:
     ; Warning: Invalid GDT will raise exception in following instruction below
     jmp 0x8:flush_cs
 flush_cs:
-    mov ax, 10h ; Update all segment register
+    mov ax, 10h ; Update all segment register 
     mov ss, ax
     mov ds, ax
     mov es, ax
+    mov fs, ax
+    mov gs, ax
     ret
