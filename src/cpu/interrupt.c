@@ -43,7 +43,52 @@ void pic_remap(void) {
     out(PIC2_DATA, PIC_DISABLE_ALL_MASK);
 }
 
+static void exception_write_text(uint8_t row, uint8_t col, const char *text) {
+    while (*text != '\0' && col < FRAMEBUFFER_WIDTH) {
+        framebuffer_write(row, col, *text, 0x0F, 0x00);
+        ++text;
+        ++col;
+    }
+}
+
+static void exception_write_hex(uint8_t row, uint8_t col, uint8_t value) {
+    const char digits[] = "0123456789ABCDEF";
+
+    for (uint32_t i = 0; i < 8; ++i){
+        uint32_t shift = (7U - i) * 4U;
+        uint8_t digit = (value >> shift) & 0x0F;
+        framebuffer_write(row, col, digits[digit], 0x0F, 0x00);
+    }
+}
+
+__attribute__((noreturn))
+static void exception_panic(const struct InterruptFrame *frame) {
+    __asm__ volatile("cli");
+
+    framebuffer_clear();
+
+    exception_write_text(0, 0, "tapOS : CPU EXCEPTION");
+
+    exception_write_text(2, 0, "Vector     : 0x");
+    exception_write_hex(2, 14, frame->int_number);
+
+    exception_write_text(3, 0, "Error code : 0x");
+    exception_write_hex(3, 14, frame->int_stack.error_code);
+    
+    exception_write_text(4, 0, "EIP        : 0x");
+    exception_write_hex(4, 14, frame->int_stack.eip);
+
+    exception_write_text(6, 0, "Kernel dihentikan");
+
+    while (true) {
+        __asm__ volatile ("hlt");
+    }
+}
+
 void main_interrupt_handler(struct InterruptFrame frame) {
+    if (frame.int_number < 32U){
+        exception_panic(&frame);
+    }
     switch (frame.int_number) {
         case PIC1_OFFSET + IRQ_KEYBOARD :
             keyboard_isr();
