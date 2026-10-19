@@ -13,7 +13,9 @@ Proyek ini menggunakan bahasa C dan assembly NASM serta dijalankan melalui emula
 - [Cara Menjalankan](#cara-menjalankan)
 - [Debugging dengan Visual Studio Code](#debugging-dengan-visual-studio-code)
 - [Struktur Proyek](#struktur-proyek)
-- [Pengujian Dasar](#pengujian-dasar)
+- [Kontrol Keyboard](#kontrol-keyboard)
+- [Hasil Pengujian Milestone 1](#hasil-pengujian-milestone-1)
+- [Batasan Saat Ini](#batasan-saat-ini)
 - [Referensi](#referensi)
 
 ## Anggota Kelompok
@@ -87,7 +89,12 @@ Proyek ini menggunakan bahasa C dan assembly NASM serta dijalankan melalui emula
 | Interrupt Descriptor Table (IDT) | Menyimpan alamat handler interrupt dan memuatnya melalui instruksi `lidt`. |
 | Interrupt Service Routine (ISR) | Menyimpan konteks register, memanggil handler C, lalu mengembalikan eksekusi melalui `iret`. |
 | Driver keyboard | Membaca scancode keyboard, memetakan tombol ke karakter, dan menyediakan buffer input. |
-| Tampilan input keyboard | Membaca buffer keyboard dan menampilkan karakter melalui framebuffer. |
+| Tampilan input keyboard | Menampilkan karakter, menangani Enter dan Backspace, serta berpindah baris otomatis saat mencapai kolom terakhir. |
+| Scrolling | Menggeser isi layar ke atas dan membersihkan baris terakhir saat output melewati batas bawah layar. Atribut warna ikut disalin. |
+| Shift dan Caps Lock | Mendukung Shift kiri/kanan, huruf kapital, kombinasi Caps Lock dengan Shift, dan simbol pada layout US. |
+| Tombol panah | Memindahkan kursor ke atas, bawah, kiri, dan kanan dengan pembatasan pada tepi layar. |
+| Penanganan exception | Menampilkan nomor vector, error code, dan EIP dalam delapan digit heksadesimal, lalu menghentikan kernel. |
+| Perlindungan akses buffer | Menyimpan dan memulihkan EFLAGS untuk melindungi operasi baca dan pengosongan buffer dari interupsi IRQ. |
 
 ## Kebutuhan Pengembangan
 
@@ -144,10 +151,14 @@ Jalankan perintah tersebut hanya saat membuat disk baru. Membuat ulang disk pada
 qemu-system-i386 \
   -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk \
   -cdrom bin/OS2025.iso \
-  -boot order=d
+  -boot order=d \
+  -no-reboot \
+  -no-shutdown
 ```
 
-Perintah ini menjalankan OS tanpa menunggu debugger. Klik jendela QEMU sebelum mengetik agar input keyboard diterima.
+Perintah ini menjalankan OS tanpa menunggu debugger. Klik jendela QEMU sebelum mengetik agar input keyboard diterima. Opsi `-no-reboot` dan `-no-shutdown` membantu mengamati kondisi ketika guest mengalami kegagalan.
+
+Target `make run` menjalankan QEMU dengan `-s -S`, sehingga CPU menunggu debugger. Gunakan perintah di atas untuk pengujian manual tanpa debugger.
 
 ### 5. Membersihkan Hasil Build
 
@@ -196,22 +207,52 @@ Jika QEMU masih menunggu debugger, layar kosong belum menunjukkan kegagalan boot
 | `bin/` | Hasil build dan disk image. |
 | `Makefile` | Perintah kompilasi, linking, pembuatan ISO, dan peluncuran QEMU. |
 
-## Pengujian Dasar
+## Kontrol Keyboard
 
-Gunakan pemeriksaan berikut untuk memvalidasi Milestone 1:
+| Tombol | Perilaku |
+| --- | --- |
+| Huruf, angka, dan simbol | Menulis karakter pada posisi kursor. |
+| Enter | Memindahkan kursor ke kolom pertama baris berikutnya. |
+| Backspace | Mundur satu sel dan menghapus karakter pada sel tersebut. Pada kolom pertama, berpindah ke kolom terakhir baris sebelumnya. Pada posisi kiri atas, tidak melakukan perubahan. |
+| Shift kiri atau kanan | Mengubah huruf menjadi kapital saat Caps Lock mati dan memilih simbol Shift pada layout US. |
+| Caps Lock | Mengaktifkan atau menonaktifkan kapitalisasi huruf. |
+| Caps Lock + Shift | Menghasilkan huruf kecil. Simbol tetap mengikuti Shift. |
+| Panah atas/bawah/kiri/kanan | Memindahkan kursor satu sel sesuai arah. Kursor berhenti pada tepi layar. |
 
-- Kernel berhasil boot tanpa reboot berulang.
-- GDT berhasil dimuat.
-- Framebuffer dapat menampilkan karakter dengan warna yang sesuai.
-- Layar dapat dibersihkan dan posisi kursor dapat diatur.
-- Interrupt keyboard diteruskan ke `keyboard_isr()`.
-- Ketikan huruf dan angka tampil pada layar.
-- Pelepasan tombol tidak menghasilkan karakter tambahan.
-- Keyboard tetap menerima input setelah penekanan tombol berulang.
-- Setiap IRQ keyboard mendapat ACK.
-- Buffer keyboard dikosongkan setelah dibaca.
+Mengetik di tengah tulisan akan menimpa karakter pada sel tersebut. Saat pengetikan melewati kolom terakhir, kursor berpindah ke baris berikutnya. Saat output melewati baris terakhir, layar melakukan scrolling.
 
-Daftar ini merupakan panduan pengujian, bukan catatan bahwa seluruh pengujian telah lulus.
+## Hasil Pengujian Milestone 1
+
+Seluruh pengujian manual berikut dinyatakan lulus  pada **19 Oktober 2026** melalui pengujian di QEMU. Hasil ini mencakup skenario yang tercantum, bukan seluruh kemungkinan input atau exception CPU.
+
+| Pengujian | Hasil yang diperiksa | Status |
+| --- | --- | --- |
+| Build bersih | `make clean` dan `make build` berhasil menghasilkan kernel serta ISO. | Lulus |
+| Boot dan integrasi GDT | Kernel berhasil berjalan setelah memuat GDT dan menerima input keyboard. | Lulus |
+| Tampilan awal | Layar dibersihkan dan kursor berada di kiri atas. | Lulus |
+| Huruf dan angka | Karakter yang diketik tampil sesuai tombol. | Lulus |
+| Shift kiri dan kanan | Kapitalisasi bekerja dan kembali sesuai status setelah Shift dilepas. | Lulus |
+| Dua tombol Shift | Melepas salah satu Shift tidak membatalkan Shift lainnya yang masih ditekan. | Lulus |
+| Caps Lock | Kapitalisasi dapat diaktifkan dan dinonaktifkan. | Lulus |
+| Caps Lock + Shift | Huruf menjadi kecil dan simbol tetap mengikuti Shift. | Lulus |
+| Simbol Shift | Simbol layout US, termasuk `!`, `@`, `#`, `{`, `}`, dan `\|`, tampil sesuai pemetaan. | Lulus |
+| Enter dan Backspace | Pergantian baris, penghapusan sel, serta pembatasan di kiri atas bekerja. | Lulus |
+| Tombol panah | Navigasi bekerja dan tidak melewati keempat tepi layar. | Lulus |
+| Penimpaan karakter | Mengetik setelah memindahkan kursor menimpa sel yang dituju. | Lulus |
+| Pergantian baris otomatis | Pengetikan melewati kolom ke-80 berlanjut pada baris berikutnya. | Lulus |
+| Scrolling dan input berulang | Isi layar bergeser saat melewati baris ke-25 dan keyboard tetap menerima input. | Lulus |
+| Exception breakpoint | Pemicu sementara `int3` menampilkan vector `00000003`, error code `00000000`, dan EIP delapan digit, lalu menghentikan kernel. | Lulus |
+| Kembali ke operasi normal | Setelah pemicu exception dihapus dan kernel dibangun ulang, OS kembali menerima input. | Lulus |
+
+## Batasan Saat Ini
+
+- Input keyboard masih memakai buffer satu karakter. Input baru dapat menimpa input sebelumnya yang belum diambil. Antrean keyboard atau ring buffer belum diimplementasikan.
+- Tombol panah mengatur posisi kursor layar. Penyisipan teks yang menggeser karakter setelah kursor belum tersedia.
+- Backspace bekerja berdasarkan posisi sel, sehingga belum mencari akhir teks pada baris sebelumnya.
+- Tab belum ditangani oleh loop tampilan kernel.
+- Penanganan tombol extended berfokus pada empat tombol panah. Tombol lain belum didukung secara lengkap.
+- Penanganan exception menghentikan kernel dan belum menyediakan mekanisme pemulihan.
+- Filesystem, user mode, shell, dan multitasking berada di luar cakupan implementasi M1 yang didokumentasikan di sini.
 
 ## Referensi
 
