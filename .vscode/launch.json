@@ -28,7 +28,7 @@
                     "description": "Connect to QEMU remote debugger"
                 },
                 {
-                    "text": "symbol-file kernel",
+                    "text": "symbol-file \"${workspaceFolder}/bin/kernel\"",
                     "description": "Get kernel symbols"
                 },
                 {
