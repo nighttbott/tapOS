@@ -91,9 +91,27 @@ void get_keyboard_buffer(char *buf) {
     if (buf == 0) {
         return;
     }
+    uint32_t interrupt_flags;
+
+    __asm__ volatile(
+        "pushfl\n\t"
+        "popl %0\n\t"
+        "cli"
+        : "=r"(interrupt_flags)
+        :
+        : "memory"
+    );
 
     *buf = keyboard_state.keyboard_buffer;
     keyboard_state.keyboard_buffer = 0;
+
+    __asm__ volatile(
+        "pushl %0\n\t"
+        "popfl"
+        :
+        : "r"(interrupt_flags)
+        : "memory", "cc"
+    );
 }
 
 void keyboard_isr(void) {
@@ -183,5 +201,7 @@ void keyboard_isr(void) {
     else if(shift_pressed) {
         character = keyboard_scancode_1_to_ascii_shift_map[scancode];
     }
-    keyboard_state.keyboard_buffer = character;
+    if (character != '\0') {
+        keyboard_state.keyboard_buffer = character;
+    }
 }
