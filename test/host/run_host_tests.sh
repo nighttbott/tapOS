@@ -35,7 +35,18 @@ run blank    --blank                        "$OUT/after_blank.img"
 
 echo
 echo "== health check (fsck)"
-python3 test/host/fsck.py "$OUT/boundary.img" "$OUT/after_delete.img" "$OUT/after_blank.img" || status=1
+
+# The legacy fixture is used for read-only tests.
+# Verify that reading it leaves its contents unchanged.
+cmp test/fixtures/sample-image.bin "$OUT/after_team.img" || status=1
+
+# Check all outputs derived from valid images or blank disks.
+python3 test/host/fsck.py \
+    "$OUT/boundary.img" \
+    "$OUT/after_boundary.img" \
+    "$OUT/after_existing.img" \
+    "$OUT/after_delete.img" \
+    "$OUT/after_blank.img" || status=1
 
 echo
 [ $status -eq 0 ] && echo "ALL HOST TESTS PASSED" || echo "SOME HOST TESTS FAILED"

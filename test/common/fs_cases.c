@@ -439,13 +439,65 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     }
  
     // a file and a folder may share a name
+        /*
+     * Book Section 2.6.2:
+     * Duplicate names must be rejected across entry types.
+     */
+
+    /* Create a file, then attempt to create a directory with the same name. */
     fill_pattern(10);
     r = make_req(big, "pair", ROOT_INODE, 10, false);
     rc = write(&r);
+
+    sum = disk_checksum();
+
     r = make_req(NULL, "pair", ROOT_INODE, 0, true);
     rc2 = write(&r);
-    fs_test_check(ctx, "W07", "write a file and then a folder, both named /pair",
-                  rc == 0 && rc2 == 0, 0, rc == 0 ? rc2 : rc);
+
+    fs_test_check(
+        ctx,
+        "W07a",
+        "folder cannot reuse a file name; disk unchanged",
+        rc == 0 && rc2 == 1 && disk_checksum() == sum,
+        1,
+        rc == 0 ? rc2 : rc
+    );
+
+    /*
+     * The directory "dir1" was created by test W04.
+     * Attempt to create a file with the same name.
+     */
+    sum = disk_checksum();
+
+    r = make_req(big, "dir1", ROOT_INODE, 10, false);
+    rc = write(&r);
+
+    fs_test_check(
+        ctx,
+        "W07b",
+        "file cannot reuse a folder name; disk unchanged",
+        rc == 1 && disk_checksum() == sum,
+        1,
+        rc
+    );
+
+    /* Reserved names cannot be recreated as either files or directories. */
+    for (uint32_t type = 0; type < 2; type++) {
+        r = make_req(big, ".", ROOT_INODE, 10, type != 0);
+        rc = write(&r);
+
+        r = make_req(big, "..", ROOT_INODE, 10, type != 0);
+        rc2 = write(&r);
+
+        fs_test_check(
+            ctx,
+            type == 0 ? "W07c" : "W07d",
+            "reserved dot names cannot be created; disk unchanged",
+            rc == 1 && rc2 == 1 && disk_checksum() == sum,
+            1,
+            rc == 1 ? rc2 : rc
+        );
+    }
 
     for (uint32_t i = 0; i < sizeof(write_sizes) / sizeof(write_sizes[0]); i++) {
         name_with_number(name, "w", write_sizes[i]);
