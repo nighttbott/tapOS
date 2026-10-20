@@ -325,10 +325,17 @@ int8_t read_directory(struct EXT2DriverRequest *prequest);
 int8_t read(struct EXT2DriverRequest request);
 
 /**
- * @brief EXT2 write, write a file or a folder to file system
+ * @brief Write a file or directory to the filesystem.
  *
- * @param All attribute will be used for write except is_dir, buffer_size == 0 then create a folder / directory. It is possible that exist file with name same as a folder
- * @return Error code: 0 success - 1 file/folder already exist - 2 invalid parent folder - -1 unknown
+ * @param request Pointer to the write request.
+ *        is_directory selects the entry type.
+ *        Names must be unique within the parent directory,
+ *        including the reserved names "." and "..".
+ *
+ * @return  0 on success.
+ * @return  1 if the entry name already exists.
+ * @return  2 if the parent directory is invalid.
+ * @return -1 on any other error.
  */
 int8_t write(struct EXT2DriverRequest *request);
 

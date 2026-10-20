@@ -580,13 +580,19 @@ static bool ext2_release_block(uint32_t block_number) {
 }
 
 /**
- * @brief Find and reserve the first free block, preferring preferred_bgd.
+ * @brief Find and reserve the first free block in ascending disk order.
  * The block bitmap and both free-block counters are updated in memory.
- * Caller is responsible for ext2_sync_metadata().
+ * The caller must persist the counters using ext2_sync_metadata().
  */
 static bool ext2_allocate_physical_block(uint32_t preferred_bgd,
                                          uint32_t *block_out) {
     uint32_t blocks_per_group = superblock.s_blocks_per_group;
+
+    /*
+     * Preserve the parameter for compatibility with existing callers.
+     * Block allocation follows global First Fit order.
+     */
+    (void)preferred_bgd;
 
     if (block_out == NULL || blocks_per_group == 0 ||
         blocks_per_group > BLOCK_SIZE * 8u ||
@@ -594,9 +600,7 @@ static bool ext2_allocate_physical_block(uint32_t preferred_bgd,
         return false;
     }
 
-    for (uint32_t attempt = 0; attempt < GROUPS_COUNT; attempt++) {
-        uint32_t group = (preferred_bgd % GROUPS_COUNT + attempt) %
-                         GROUPS_COUNT;
+    for (uint32_t group = 0; group < GROUPS_COUNT; group++) {
         struct EXT2BlockGroupDescriptor *descriptor =
             &bgd_table.table[group];
         struct BlockBuffer bitmap;
@@ -1613,17 +1617,34 @@ int8_t write(struct EXT2DriverRequest *request) {
         }
     }
 
-    context.superblock = superblock;
+ context.superblock = superblock;
     context.bgd_table = bgd_table;
-    result = ext2_find_entry(&context, request->parent_inode, request->name,
-                             request->name_len, &existing);
+
+    /*
+     * Names must be unique within the parent directory,
+     * regardless of whether the entry is a file or directory.
+     */
+    result = ext2_find_entry(
+        &context,
+        request->parent_inode,
+        request->name,
+        request->name_len,
+        EXT2_FT_UNKNOWN,
+        &existing
+    );
+
     if (result == 0) {
+        /* The name is already in use. */
         return 1;
     }
+
     if (result == 2) {
+        /* The parent is not a valid directory. */
         return 2;
     }
+
     if (result != 1) {
+        /* An unexpected lookup error occurred. */
         return -1;
     }
 
