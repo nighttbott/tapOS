@@ -572,6 +572,350 @@ static bool ext2_release_physical_block(uint32_t block_number,
     return true;
 }
 
+static bool ext2_release_block(uint32_t block_number) {
+    struct BlockBuffer bitmap;
+    uint32_t last_bgd = 0;
+
+    return ext2_release_physical_block(block_number, &bitmap, &last_bgd);
+}
+
+/**
+ * @brief Find and reserve the first free block, preferring preferred_bgd.
+ * The block bitmap and both free-block counters are updated in memory.
+ * Caller is responsible for ext2_sync_metadata().
+ */
+static bool ext2_allocate_physical_block(uint32_t preferred_bgd,
+                                         uint32_t *block_out) {
+    uint32_t blocks_per_group = superblock.s_blocks_per_group;
+
+    if (block_out == NULL || blocks_per_group == 0 ||
+        blocks_per_group > BLOCK_SIZE * 8u ||
+        superblock.s_free_blocks_count == 0) {
+        return false;
+    }
+
+    for (uint32_t attempt = 0; attempt < GROUPS_COUNT; attempt++) {
+        uint32_t group = (preferred_bgd % GROUPS_COUNT + attempt) %
+                         GROUPS_COUNT;
+        struct EXT2BlockGroupDescriptor *descriptor =
+            &bgd_table.table[group];
+        struct BlockBuffer bitmap;
+        uint32_t group_start = group * blocks_per_group;
+        uint32_t block_count;
+
+        if (descriptor->bg_free_blocks_count == 0 ||
+            group_start >= superblock.s_blocks_count ||
+            descriptor->bg_block_bitmap == 0 ||
+            descriptor->bg_block_bitmap >= superblock.s_blocks_count ||
+            descriptor->bg_block_bitmap >= DISK_SPACE / BLOCK_SIZE) {
+            continue;
+        }
+
+        block_count = superblock.s_blocks_count - group_start;
+        if (block_count > blocks_per_group) {
+            block_count = blocks_per_group;
+        }
+        if (block_count > BLOCK_SIZE * 8u) {
+            block_count = BLOCK_SIZE * 8u;
+        }
+
+        read_blocks(&bitmap, descriptor->bg_block_bitmap, 1);
+        for (uint32_t local = 0; local < block_count; local++) {
+            uint32_t block_number = group_start + local;
+
+            if (block_number < EXT2_FIRST_DATA_BLOCK ||
+                block_number >= superblock.s_blocks_count ||
+                ext2_is_metadata_block(block_number)) {
+                continue;
+            }
+            if ((bitmap.buf[local / 8u] &
+                 (uint8_t)(1u << (local % 8u))) != 0) {
+                continue;
+            }
+
+            ext2_set_bitmap_bit(&bitmap, local);
+            write_blocks(&bitmap, descriptor->bg_block_bitmap, 1);
+            descriptor->bg_free_blocks_count--;
+            superblock.s_free_blocks_count--;
+            *block_out = block_number;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ext2_ensure_pointer_block(uint32_t *pointer,
+                                      uint32_t preferred_bgd,
+                                      uint32_t *new_blocks) {
+    struct BlockBuffer block;
+    uint32_t block_number;
+
+    if (pointer == NULL || new_blocks == NULL) {
+        return false;
+    }
+    if (*pointer != 0) {
+        return true;
+    }
+    if (!ext2_allocate_physical_block(preferred_bgd, &block_number)) {
+        return false;
+    }
+
+    memset(&block, 0, sizeof(block));
+    write_blocks(&block, block_number, 1);
+    *pointer = block_number;
+    (*new_blocks)++;
+    return true;
+}
+
+/**
+ * @brief Store data_block at the requested logical position.
+ * Missing indirect pointer blocks are allocated and reported through
+ * new_pointer_blocks. On failure all newly created pointer blocks are
+ * released, so the inode is left unchanged.
+ */
+static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
+                                        uint32_t logical_block,
+                                        uint32_t data_block,
+                                        uint32_t preferred_bgd,
+                                        uint32_t *new_pointer_blocks) {
+    struct BlockBuffer pointer_block;
+
+    if (node == NULL || new_pointer_blocks == NULL ||
+        logical_block >= EXT2_MAX_DATA_BLOCKS) {
+        return false;
+    }
+    *new_pointer_blocks = 0;
+
+    if (logical_block < EXT2_DIRECT_BLOCK_COUNT) {
+        node->i_block[logical_block] = data_block;
+        return true;
+    }
+
+    if (logical_block < EXT2_DOUBLE_INDIRECT_START) {
+        uint32_t created = 0;
+
+        if (!ext2_ensure_pointer_block(&node->i_block[12], preferred_bgd,
+                                       &created)) {
+            return false;
+        }
+        read_blocks(&pointer_block, node->i_block[12], 1);
+        memcpy(pointer_block.buf +
+                   (logical_block - EXT2_SINGLE_INDIRECT_START) *
+                       sizeof(uint32_t),
+               &data_block, sizeof(data_block));
+        write_blocks(&pointer_block, node->i_block[12], 1);
+        *new_pointer_blocks = created;
+        return true;
+    }
+
+    {
+        uint32_t double_index = logical_block - EXT2_DOUBLE_INDIRECT_START;
+        uint32_t first_index = double_index / EXT2_POINTERS_PER_BLOCK;
+        uint32_t second_index = double_index % EXT2_POINTERS_PER_BLOCK;
+        uint32_t double_created = 0;
+        uint32_t first_created = 0;
+        uint32_t first_pointer = 0;
+
+        if (!ext2_ensure_pointer_block(&node->i_block[13], preferred_bgd,
+                                       &double_created)) {
+            return false;
+        }
+        read_blocks(&pointer_block, node->i_block[13], 1);
+        memcpy(&first_pointer,
+               pointer_block.buf + first_index * sizeof(uint32_t),
+               sizeof(first_pointer));
+
+        if (first_pointer == 0) {
+            struct BlockBuffer first_block;
+
+            if (!ext2_allocate_physical_block(preferred_bgd,
+                                              &first_pointer)) {
+                if (double_created) {
+                    ext2_release_block(node->i_block[13]);
+                    node->i_block[13] = 0;
+                }
+                return false;
+            }
+            memset(&first_block, 0, sizeof(first_block));
+            write_blocks(&first_block, first_pointer, 1);
+            first_created = 1;
+            memcpy(pointer_block.buf + first_index * sizeof(uint32_t),
+                   &first_pointer, sizeof(first_pointer));
+            write_blocks(&pointer_block, node->i_block[13], 1);
+        }
+
+        read_blocks(&pointer_block, first_pointer, 1);
+        memcpy(pointer_block.buf + second_index * sizeof(uint32_t),
+               &data_block, sizeof(data_block));
+        write_blocks(&pointer_block, first_pointer, 1);
+        *new_pointer_blocks = double_created + first_created;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Undo a partially built inode block map created by
+ * ext2_allocate_node_blocks_checked().
+ * @param node freshly zeroed inode that owns the blocks
+ * @param data_blocks number of data blocks successfully linked
+ */
+static void ext2_rollback_node_blocks(struct EXT2Inode *node,
+                                      uint32_t data_blocks) {
+    if (node == NULL) {
+        return;
+    }
+
+    deallocate_blocks(node->i_block, data_blocks);
+
+    /* Pointer block may exist before the first indirect data block. */
+    if (node->i_block[12] != 0 &&
+        data_blocks <= EXT2_DIRECT_BLOCK_COUNT) {
+        ext2_release_block(node->i_block[12]);
+    }
+    if (node->i_block[13] != 0 &&
+        data_blocks <= EXT2_DOUBLE_INDIRECT_START) {
+        struct BlockBuffer double_block;
+
+        if (node->i_block[13] < superblock.s_blocks_count) {
+            read_blocks(&double_block, node->i_block[13], 1);
+            for (uint32_t i = 0; i < EXT2_POINTERS_PER_BLOCK; i++) {
+                uint32_t first_pointer;
+                memcpy(&first_pointer,
+                       double_block.buf + i * sizeof(uint32_t),
+                       sizeof(first_pointer));
+                if (first_pointer != 0) {
+                    ext2_release_block(first_pointer);
+                }
+            }
+        }
+        ext2_release_block(node->i_block[13]);
+    }
+
+    memset(node->i_block, 0, sizeof(node->i_block));
+    node->i_blocks = 0;
+    ext2_sync_metadata();
+}
+
+/**
+ * @brief Allocate and write every data block of a new inode.
+ * Supports direct, single indirect, and double indirect blocks.
+ * @return false after rolling back all blocks allocated by this call
+ */
+static bool ext2_allocate_node_blocks_checked(void *ptr,
+                                              struct EXT2Inode *node,
+                                              uint32_t preferred_bgd) {
+    uint32_t data_blocks;
+    uint32_t allocated_blocks = 0;
+    uint32_t pointer_blocks = 0;
+
+    if (node == NULL) {
+        return false;
+    }
+    if (node->i_size == 0) {
+        node->i_blocks = 0;
+        return true;
+    }
+    if (ptr == NULL ||
+        node->i_size > EXT2_MAX_DATA_BLOCKS * BLOCK_SIZE) {
+        return false;
+    }
+
+    data_blocks = (node->i_size + BLOCK_SIZE - 1u) / BLOCK_SIZE;
+    for (uint32_t logical_block = 0;
+         logical_block < data_blocks;
+         logical_block++) {
+        struct BlockBuffer data_block;
+        uint32_t block_number;
+        uint32_t bytes = node->i_size - logical_block * BLOCK_SIZE;
+        uint32_t created_pointers = 0;
+
+        if (bytes > BLOCK_SIZE) {
+            bytes = BLOCK_SIZE;
+        }
+        if (!ext2_allocate_physical_block(preferred_bgd, &block_number)) {
+            ext2_rollback_node_blocks(node, allocated_blocks);
+            return false;
+        }
+        if (!ext2_set_data_block_pointer(node, logical_block, block_number,
+                                         preferred_bgd,
+                                         &created_pointers)) {
+            ext2_release_block(block_number);
+            ext2_rollback_node_blocks(node, allocated_blocks);
+            return false;
+        }
+        allocated_blocks++;
+        pointer_blocks += created_pointers;
+
+        memset(&data_block, 0, sizeof(data_block));
+        memcpy(data_block.buf,
+               (uint8_t *)ptr + logical_block * BLOCK_SIZE, bytes);
+        write_blocks(&data_block, block_number, 1);
+    }
+
+    node->i_blocks = allocated_blocks + pointer_blocks;
+    return true;
+}
+
+void allocate_node_blocks(void *ptr, struct EXT2Inode *node,
+                          uint32_t prefered_bgd) {
+    (void)ext2_allocate_node_blocks_checked(ptr, node, prefered_bgd);
+}
+
+uint32_t allocate_node(void) {
+    struct BlockBuffer inode_bitmap;
+
+    if (superblock.s_free_inodes_count == 0 ||
+        superblock.s_inodes_per_group == 0 ||
+        superblock.s_inodes_per_group > INODES_PER_GROUP) {
+        return 0;
+    }
+
+    for (uint32_t group = 0; group < GROUPS_COUNT; group++) {
+        struct EXT2BlockGroupDescriptor *descriptor =
+            &bgd_table.table[group];
+        uint32_t first_inode = group * INODES_PER_GROUP + 1u;
+        uint32_t inode_count;
+
+        if (descriptor->bg_free_inodes_count == 0 ||
+            first_inode > superblock.s_inodes_count ||
+            descriptor->bg_inode_bitmap == 0 ||
+            descriptor->bg_inode_bitmap >= superblock.s_blocks_count ||
+            descriptor->bg_inode_bitmap >= DISK_SPACE / BLOCK_SIZE) {
+            continue;
+        }
+
+        inode_count = superblock.s_inodes_count - first_inode + 1u;
+        if (inode_count > INODES_PER_GROUP) {
+            inode_count = INODES_PER_GROUP;
+        }
+        if (inode_count > BLOCK_SIZE * 8u) {
+            inode_count = BLOCK_SIZE * 8u;
+        }
+
+        read_blocks(&inode_bitmap, descriptor->bg_inode_bitmap, 1);
+        for (uint32_t local = 0; local < inode_count; local++) {
+            uint32_t inode_number = first_inode + local;
+
+            if (inode_number <= EXT2_ROOT_INODE ||
+                (inode_bitmap.buf[local / 8u] &
+                 (uint8_t)(1u << (local % 8u))) != 0) {
+                continue;
+            }
+
+            ext2_set_bitmap_bit(&inode_bitmap, local);
+            write_blocks(&inode_bitmap, descriptor->bg_inode_bitmap, 1);
+            descriptor->bg_free_inodes_count--;
+            superblock.s_free_inodes_count--;
+            ext2_sync_metadata();
+            return inode_number;
+        }
+    }
+
+    return 0;
+}
+
 uint32_t deallocate_block(uint32_t *locations, uint32_t blocks,
                           struct BlockBuffer *bitmap, uint32_t depth,
                           uint32_t *last_bgd, bool bgd_loaded) {
@@ -1046,6 +1390,138 @@ int8_t read_directory(struct EXT2DriverRequest *request) {
     return 0;
 }
 
+static void ext2_fill_directory_entry(void *destination, uint16_t rec_len,
+                                      uint32_t inode, const char *name,
+                                      uint8_t name_len, uint8_t file_type) {
+    struct EXT2DirectoryEntry entry;
+
+    memset(&entry, 0, sizeof(entry));
+    entry.inode = inode;
+    entry.rec_len = rec_len;
+    entry.name_len = name_len;
+    entry.file_type = file_type;
+    memcpy(destination, &entry, sizeof(entry));
+    memcpy((uint8_t *)destination + sizeof(entry), name, name_len);
+}
+
+/**
+ * @brief Append a child entry to a directory, growing it when needed.
+ * @return 0 on success, -1 on failure (no directory change is left behind)
+ */
+static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
+                                       uint32_t child_inode,
+                                       const char *name, uint8_t name_len,
+                                       uint8_t file_type) {
+    struct EXT2ReadContext context;
+    struct EXT2Inode parent;
+    struct BlockBuffer block;
+    uint16_t new_record_length = get_entry_record_len(name_len);
+    uint32_t parent_blocks;
+
+    if (!ext2_read_cached_inode(parent_inode_number, &parent) ||
+        (parent.i_mode & 0xF000u) != EXT2_S_IFDIR ||
+        parent.i_size == 0 || parent.i_size % BLOCK_SIZE != 0 ||
+        parent.i_size > DISK_SPACE) {
+        return -1;
+    }
+
+    context.superblock = superblock;
+    context.bgd_table = bgd_table;
+    parent_blocks = parent.i_size / BLOCK_SIZE;
+
+    for (uint32_t logical_block = 0;
+         logical_block < parent_blocks;
+         logical_block++) {
+        uint32_t disk_block;
+        uint32_t offset = 0;
+
+        if (!ext2_get_data_block(&context, &parent, logical_block,
+                                 &disk_block)) {
+            return -1;
+        }
+        read_blocks(&block, disk_block, 1);
+
+        while (offset + sizeof(struct EXT2DirectoryEntry) <= BLOCK_SIZE) {
+            struct EXT2DirectoryEntry entry;
+            uint16_t actual_length;
+
+            memcpy(&entry, block.buf + offset, sizeof(entry));
+            if (entry.rec_len < sizeof(struct EXT2DirectoryEntry) ||
+                (entry.rec_len & 3u) != 0 ||
+                entry.rec_len > BLOCK_SIZE - offset) {
+                return -1;
+            }
+
+            if (entry.inode == 0) {
+                if (entry.rec_len >= new_record_length) {
+                    ext2_fill_directory_entry(block.buf + offset,
+                                              entry.rec_len, child_inode,
+                                              name, name_len, file_type);
+                    write_blocks(&block, disk_block, 1);
+                    return 0;
+                }
+                offset += entry.rec_len;
+                continue;
+            }
+
+            if (entry.name_len > UINT8_MAX) {
+                return -1;
+            }
+            actual_length = get_entry_record_len((uint8_t)entry.name_len);
+            if (actual_length > entry.rec_len) {
+                return -1;
+            }
+            if (entry.rec_len - actual_length >= new_record_length) {
+                uint16_t old_record_length = entry.rec_len;
+
+                entry.rec_len = actual_length;
+                memcpy(block.buf + offset, &entry, sizeof(entry));
+                /* The new record owns the remainder of the old record. */
+                ext2_fill_directory_entry(
+                    block.buf + offset + actual_length,
+                    (uint16_t)(old_record_length - actual_length),
+                    child_inode, name, name_len, file_type);
+                write_blocks(&block, disk_block, 1);
+                return 0;
+            }
+
+            offset += entry.rec_len;
+        }
+    }
+
+    /* No free record in the existing blocks: append one new directory block. */
+    {
+        uint32_t logical_block = parent_blocks;
+        uint32_t block_number;
+        uint32_t pointer_blocks = 0;
+        uint32_t preferred_bgd = inode_to_bgd(parent_inode_number);
+
+        if (logical_block >= EXT2_MAX_DATA_BLOCKS ||
+            !ext2_allocate_physical_block(preferred_bgd, &block_number)) {
+            return -1;
+        }
+
+        memset(&block, 0, sizeof(block));
+        ext2_fill_directory_entry(block.buf, BLOCK_SIZE, child_inode,
+                                  name, name_len, file_type);
+        write_blocks(&block, block_number, 1);
+
+        if (!ext2_set_data_block_pointer(&parent, logical_block, block_number,
+                                         preferred_bgd, &pointer_blocks)) {
+            ext2_release_block(block_number);
+            ext2_sync_metadata();
+            return -1;
+        }
+
+        parent.i_size += BLOCK_SIZE;
+        parent.i_blocks += 1u + pointer_blocks;
+        sync_node(&parent, parent_inode_number);
+        ext2_sync_metadata();
+    }
+
+    return 0;
+}
+
 int8_t read(struct EXT2DriverRequest request) {
     struct EXT2ReadContext context;
     struct EXT2DirectoryEntry entry;
@@ -1109,6 +1585,98 @@ int8_t read(struct EXT2DriverRequest request) {
         memcpy((uint8_t *)request.buf + bytes_read, data_block.buf,
                bytes_to_copy);
         bytes_read += bytes_to_copy;
+    }
+
+    return 0;
+}
+
+int8_t write(struct EXT2DriverRequest *request) {
+    struct EXT2ReadContext context;
+    struct EXT2DirectoryEntry existing;
+    struct EXT2Inode node;
+    uint32_t inode_number;
+    int8_t result;
+    bool is_directory;
+
+    if (request == NULL ||
+        !ext2_valid_name(request->name, request->name_len)) {
+        return -1;
+    }
+
+    is_directory = request->is_directory;
+    if (!is_directory) {
+        if (request->buffer_size > 0 && request->buf == NULL) {
+            return -1;
+        }
+        if (request->buffer_size > EXT2_MAX_DATA_BLOCKS * BLOCK_SIZE) {
+            return -1;
+        }
+    }
+
+    context.superblock = superblock;
+    context.bgd_table = bgd_table;
+    result = ext2_find_entry(&context, request->parent_inode, request->name,
+                             request->name_len, &existing);
+    if (result == 0) {
+        return 1;
+    }
+    if (result == 2) {
+        return 2;
+    }
+    if (result != 1) {
+        return -1;
+    }
+
+    inode_number = allocate_node();
+    if (inode_number == 0) {
+        return -1;
+    }
+
+    memset(&node, 0, sizeof(node));
+    node.i_mode = is_directory ? EXT2_S_IFDIR : EXT2_S_IFREG;
+    node.i_size = is_directory ? BLOCK_SIZE : request->buffer_size;
+
+    if (is_directory) {
+        uint32_t group = inode_to_bgd(inode_number);
+        uint32_t block_number;
+
+        if (group >= GROUPS_COUNT) {
+            deallocate_node(inode_number);
+            return -1;
+        }
+        /* Persist the directory mode first so rollback updates used_dirs_count. */
+        sync_node(&node, inode_number);
+        bgd_table.table[group].bg_used_dirs_count++;
+        ext2_sync_metadata();
+
+        if (!ext2_allocate_physical_block(inode_to_bgd(inode_number),
+                                          &block_number)) {
+            deallocate_node(inode_number);
+            return -1;
+        }
+        node.i_block[0] = block_number;
+        node.i_blocks = 1;
+        init_directory_table(&node, inode_number, request->parent_inode);
+        sync_node(&node, inode_number);
+        ext2_sync_metadata();
+    } else {
+        if (node.i_size > 0 &&
+            !ext2_allocate_node_blocks_checked(request->buf, &node,
+                                               inode_to_bgd(inode_number))) {
+            deallocate_node(inode_number);
+            return -1;
+        }
+        sync_node(&node, inode_number);
+        ext2_sync_metadata();
+    }
+
+    result = ext2_add_directory_entry(
+        request->parent_inode, inode_number, request->name,
+        request->name_len,
+        is_directory ? EXT2_FT_DIR : EXT2_FT_REG_FILE);
+    if (result != 0) {
+        deallocate_node(inode_number);
+        return -1;
     }
 
     return 0;
