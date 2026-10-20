@@ -15,7 +15,7 @@ FLAGS="-std=gnu11 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize=al
 echo "== build"
 gcc $FLAGS $RENAME \
     src/filesystem/ext2.c \
-    test/common/fs_test.c test/common/fs_cases.c test/common/fs_stubs.c \
+    test/common/fs_test.c test/common/fs_cases.c \
     test/host/ram_disk.c test/host/test_main.c \
     -o "$OUT/test_fs" || { echo "BUILD FAILED"; exit 2; }
 
@@ -38,5 +38,5 @@ echo "== health check (fsck)"
 python3 test/host/fsck.py "$OUT/boundary.img" "$OUT/after_delete.img" "$OUT/after_blank.img" || status=1
 
 echo
-[ $status -eq 0 ] && echo "ALL HOST TESTS PASSED" || echo "SOME HOST TESTS FAILED OR ARE NOT IMPLEMENTED YET"
+[ $status -eq 0 ] && echo "ALL HOST TESTS PASSED" || echo "SOME HOST TESTS FAILED"
 exit $status

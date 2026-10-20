@@ -153,32 +153,9 @@ static uint32_t disk_checksum(void) {
     return hash;
 }
 
-// Calls initialize_filesystem_ext2(); returns false (and records TODO) if it is still a placeholder
-static bool try_initialize(struct FsTestContext *ctx, const char *id, const char *what) {
-    uint32_t hits = fs_stub_hits;
-    initialize_filesystem_ext2();
-    if (fs_stub_hits != hits) {
-        fs_test_not_implemented(ctx, id, what, "initialize_filesystem_ext2");
-        return false;
-    }
-    return true;
-}
- 
-// Records a return-code check, or TODO when the function is still a placeholder
-static void check_rc(struct FsTestContext *ctx, const char *id, const char *what,
-                     int8_t rc, int8_t expected, const char *function_name) {
-    if (rc == FS_TEST_NOT_IMPLEMENTED)
-        fs_test_not_implemented(ctx, id, what, function_name);
-    else
-        fs_test_check(ctx, id, what, rc == expected, expected, rc);
-}
-
-// When a setup write is still a placeholder, record TODO instead of blaming the function under test
-static bool blocked_by_write(struct FsTestContext *ctx, const char *id, const char *what, int8_t setup_rc) {
-    if (setup_rc != FS_TEST_NOT_IMPLEMENTED)
-        return false;
-    fs_test_not_implemented(ctx, id, what, "write (needed to set up this test)");
-    return true;
+// Records a check on a function's return code
+static void check_rc(struct FsTestContext *ctx, const char *id, const char *what, int8_t rc, int8_t expected) {
+    fs_test_check(ctx, id, what, rc == expected, expected, rc);
 }
 
 // Reads a file into big and checks both the return code and every byte
@@ -340,8 +317,7 @@ void fs_suite_delete(struct FsTestContext *ctx) {
     fs_test_info(ctx, "delete on test/fixtures/boundary.img");
 
     // delete works on the state that initialize loads, so it must run first
-    if (!try_initialize(ctx, "X00", "load the disk before deleting"))
-        return;
+    initialize_filesystem_ext2();
     docs = find_inode(ROOT_INODE, "docs");
     a = find_inode(docs, "a");
     b = find_inode(a, "b");
@@ -351,7 +327,7 @@ void fs_suite_delete(struct FsTestContext *ctx) {
     before = read_free_counts();
     rc = delete_name("s71681", ROOT_INODE, false);
     after = read_free_counts();
-    check_rc(ctx, "X10a", "delete /s71681", rc, 0, "delete");
+    check_rc(ctx, "X10a", "delete /s71681", rc, 0);
     r = make_req(big, "s71681", ROOT_INODE, BIG_BUFFER_SIZE, false);
     rc = read(r);
     fs_test_check(ctx, "X10b", "read the deleted file -> 3 not found", rc == 3, 3, rc);
@@ -389,12 +365,11 @@ void fs_suite_delete(struct FsTestContext *ctx) {
     fs_test_check(ctx, "X15", "delete /docs/a/b/deep.txt, then b, a, docs, one by one",
                   rc == 0 && find_inode(ROOT_INODE, "docs") == 0, 0, rc);
 
-    if (try_initialize(ctx, "X16", "restart, deletes are still there")) {
-        r = make_req(big, "s71681", ROOT_INODE, BIG_BUFFER_SIZE, false);
-        rc = read(r);
-        fs_test_check(ctx, "X16a", "restart: /s71681 is still gone", rc == 3, 3, rc);
-        check_read_pattern(ctx, "X16b", "restart: /s6145 still reads", "s6145", ROOT_INODE, 6145);
-    }
+    initialize_filesystem_ext2();   // restart
+    r = make_req(big, "s71681", ROOT_INODE, BIG_BUFFER_SIZE, false);
+    rc = read(r);
+    fs_test_check(ctx, "X16a", "restart: /s71681 is still gone", rc == 3, 3, rc);
+    check_read_pattern(ctx, "X16b", "restart: /s6145 still reads", "s6145", ROOT_INODE, 6145);
 
     rc = delete_name("dup", ROOT_INODE, true);
     fs_test_check(ctx, "X17a", "delete the folder /dup (a file /dup comes first)", rc == 0, 0, rc);
@@ -405,9 +380,6 @@ void fs_suite_delete(struct FsTestContext *ctx) {
  
 static const uint32_t write_sizes[] = { 1, 511, 512, 513, 6144, 6145, 71680, 71681 };
  
-static const char *const blank_ids[] = {
-    "W01", "W02", "W03", "W04", "W05", "X01", "X02", "X03", "X04", "X05", "P01", "W06",
-};
  
 void fs_suite_blank(struct FsTestContext *ctx) {
     char name[16];
@@ -416,15 +388,11 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     struct EXT2Superblock *sb = (struct EXT2Superblock *) block.buf;
     struct FreeCounts before, after;
     uint32_t hello, dir1, dir2, sum;
-    int8_t rc, hello_rc, dir2_rc, inner_rc, big_rc = FS_TEST_NOT_IMPLEMENTED;
+    int8_t rc, rc2;
  
     fs_test_info(ctx, "format a zeroed disk, then create / read / delete (owners B and E)");
  
-    if (!try_initialize(ctx, "I01", "format a zeroed disk")) {
-        for (uint32_t i = 0; i < sizeof(blank_ids) / sizeof(blank_ids[0]); i++)
-            fs_test_not_implemented(ctx, blank_ids[i], "blocked by I01", "initialize_filesystem_ext2");
-        return;
-    }
+    initialize_filesystem_ext2();
  
     read_blocks(&block, 0, 1);
     fs_test_check(ctx, "I01a", "block 0 holds fs_signature",
@@ -441,25 +409,25 @@ void fs_suite_blank(struct FsTestContext *ctx) {
  
     fill_pattern(513);
     r = make_req(big, "hello.txt", ROOT_INODE, 513, false);
-    rc = hello_rc = write(&r);
-    check_rc(ctx, "W01a", "write /hello.txt (513 bytes)", rc, 0, "write");
+    rc = write(&r);
+    check_rc(ctx, "W01a", "write /hello.txt (513 bytes)", rc, 0);
     if (rc == 0)
         check_read_pattern(ctx, "W01b", "read /hello.txt back, every byte equal", "hello.txt", ROOT_INODE, 513);
  
     rc = write(&r);
-    check_rc(ctx, "W02", "write /hello.txt again -> 1 already exists", rc, 1, "write");
+    check_rc(ctx, "W02", "write /hello.txt again -> 1 already exists", rc, 1);
  
     r = make_req(big, "x.txt", 999, 513, false);
     rc = write(&r);
-    check_rc(ctx, "W03a", "write with parent inode 999 -> 2", rc, 2, "write");
+    check_rc(ctx, "W03a", "write with parent inode 999 -> 2", rc, 2);
     hello = find_inode(ROOT_INODE, "hello.txt");
     r = make_req(big, "x.txt", hello ? hello : 999, 513, false);
     rc = write(&r);
-    check_rc(ctx, "W03b", "write with a file as parent -> 2", rc, 2, "write");
+    check_rc(ctx, "W03b", "write with a file as parent -> 2", rc, 2);
  
     r = make_req(NULL, "dir1", ROOT_INODE, 0, true);
     rc = write(&r);
-    check_rc(ctx, "W04a", "create folder /dir1", rc, 0, "write");
+    check_rc(ctx, "W04a", "create folder /dir1", rc, 0);
     if (rc == 0) {
         dir1 = find_inode(ROOT_INODE, "dir1");
         r = make_req(dir_buf, "dir1", ROOT_INODE, DIR_BUFFER_SIZE, true);
@@ -470,23 +438,28 @@ void fs_suite_blank(struct FsTestContext *ctx) {
                       0, rc);
     }
  
+    // a file and a folder may share a name
+    fill_pattern(10);
+    r = make_req(big, "pair", ROOT_INODE, 10, false);
+    rc = write(&r);
+    r = make_req(NULL, "pair", ROOT_INODE, 0, true);
+    rc2 = write(&r);
+    fs_test_check(ctx, "W07", "write a file and then a folder, both named /pair",
+                  rc == 0 && rc2 == 0, 0, rc == 0 ? rc2 : rc);
+
     for (uint32_t i = 0; i < sizeof(write_sizes) / sizeof(write_sizes[0]); i++) {
         name_with_number(name, "w", write_sizes[i]);
         fill_pattern(write_sizes[i]);
         r = make_req(big, name, ROOT_INODE, write_sizes[i], false);
         rc = write(&r);
-        check_rc(ctx, "W05a", name, rc, 0, "write");
-        big_rc = rc;   // the last one (w71681) is read again by P01
+        check_rc(ctx, "W05a", name, rc, 0);
         if (rc == 0)
             check_read_pattern(ctx, "W05b", name, name, ROOT_INODE, write_sizes[i]);
     }
  
     r = make_req(NULL, "hello.txt", ROOT_INODE, 0, false);
     rc = delete(r);
-    if (blocked_by_write(ctx, "X01a", "delete /hello.txt", hello_rc))
-        rc = FS_TEST_NOT_IMPLEMENTED;
-    else
-        check_rc(ctx, "X01a", "delete /hello.txt", rc, 0, "delete");
+    check_rc(ctx, "X01a", "delete /hello.txt", rc, 0);
     if (rc == 0) {
         r = make_req(big, "hello.txt", ROOT_INODE, BIG_BUFFER_SIZE, false);
         rc = read(r);
@@ -494,31 +467,26 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     }
  
     r = make_req(NULL, "dir2", ROOT_INODE, 0, true);
-    dir2_rc = write(&r);
+    write(&r);
     dir2 = find_inode(ROOT_INODE, "dir2");
     fill_pattern(10);
     r = make_req(big, "inner", dir2 ? dir2 : 999, 10, false);
-    inner_rc = write(&r);
+    write(&r);
     r = make_req(NULL, "dir2", ROOT_INODE, 0, true);
     rc = delete(r);
-    if (!blocked_by_write(ctx, "X02", "delete a folder that is not empty -> 2",
-                          dir2_rc == FS_TEST_NOT_IMPLEMENTED ? dir2_rc : inner_rc))
-        check_rc(ctx, "X02", "delete a folder that is not empty -> 2", rc, 2, "delete");
+    check_rc(ctx, "X02", "delete a folder that is not empty -> 2", rc, 2);
  
     sum = disk_checksum();
     r = make_req(NULL, ".", ROOT_INODE, 0, true);
     rc = delete(r);
     r = make_req(NULL, "..", ROOT_INODE, 0, true);
-    int8_t rc2 = delete(r);
-    if (rc == FS_TEST_NOT_IMPLEMENTED)
-        fs_test_not_implemented(ctx, "X03", "delete '.' and '..' is refused", "delete");
-    else
-        fs_test_check(ctx, "X03", "delete '.' and '..' is refused, disk unchanged",
-                      rc != 0 && rc2 != 0 && disk_checksum() == sum, 1, rc);
+    rc2 = delete(r);
+    fs_test_check(ctx, "X03", "delete '.' and '..' is refused, disk unchanged",
+                  rc != 0 && rc2 != 0 && disk_checksum() == sum, 1, rc);
  
     r = make_req(NULL, "ghost", ROOT_INODE, 0, false);
     rc = delete(r);
-    check_rc(ctx, "X04", "delete a missing name -> 1", rc, 1, "delete");
+    check_rc(ctx, "X04", "delete a missing name -> 1", rc, 1);
  
     before = read_free_counts();
     fill_pattern(6145);
@@ -527,15 +495,11 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     r = make_req(NULL, "tmp", ROOT_INODE, 0, false);
     rc2 = delete(r);
     after = read_free_counts();
-    if (rc == FS_TEST_NOT_IMPLEMENTED || rc2 == FS_TEST_NOT_IMPLEMENTED)
-        fs_test_not_implemented(ctx, "X05", "create, delete: all space comes back", "write/delete");
-    else
-        check_counts(ctx, "X05", "create then delete: free blocks and inodes back to the start value",
-                     rc == 0 && rc2 == 0, before, after);
+    check_counts(ctx, "X05", "create then delete: free blocks and inodes back to the start value",
+                 rc == 0 && rc2 == 0, before, after);
  
-    if (try_initialize(ctx, "P01", "restart (initialize again), data still there") &&
-        !blocked_by_write(ctx, "P01", "restart, then read /w71681", big_rc))
-        check_read_pattern(ctx, "P01", "restart, then read /w71681", "w71681", ROOT_INODE, 71681);
+    initialize_filesystem_ext2();   // restart
+    check_read_pattern(ctx, "P01", "restart, then read /w71681", "w71681", ROOT_INODE, 71681);
  
 #ifdef FS_TEST_SKIP_FULL_DISK
     fs_test_info(ctx, "W06 skipped here (full disk is tested by test/host/run_host_tests.sh)");
@@ -553,10 +517,6 @@ void fs_suite_blank(struct FsTestContext *ctx) {
             written++;
     }
     after = read_free_counts();
-    if (rc == FS_TEST_NOT_IMPLEMENTED) {
-        fs_test_not_implemented(ctx, "W06", "full disk fails cleanly", "write");
-        return;
-    }
     check_counts(ctx, "W06a", "full disk: the failing write leaks no space", rc != 0, before, after);
  
     // every file that write() accepted must really be there
@@ -578,9 +538,9 @@ void fs_suite_existing(struct FsTestContext *ctx) {
  
     fs_test_info(ctx, "initialize on a valid disk must not reformat it (owner B)");
     sum = disk_checksum();
-    if (try_initialize(ctx, "I02", "initialize on an existing disk"))
-        fs_test_check(ctx, "I02", "initialize on an existing disk changes no byte",
-                      disk_checksum() == sum, 1, 0);
+    initialize_filesystem_ext2();
+    fs_test_check(ctx, "I02", "initialize on an existing disk changes no byte",
+                  disk_checksum() == sum, 1, 0);
 }
  
 /* ---------- suites: two-boot persistence (QEMU) ---------- */
@@ -590,15 +550,14 @@ void fs_suite_persist_write(struct FsTestContext *ctx) {
     int8_t rc;
  
     fs_test_info(ctx, "boot 1 of 2: write data that must survive a restart");
-    if (!try_initialize(ctx, "S01", "format or load the disk"))
-        return;
+    initialize_filesystem_ext2();
     fill_pattern(71681);
     r = make_req(big, "persist.bin", ROOT_INODE, 71681, false);
     rc = write(&r);
-    check_rc(ctx, "S01", "write /persist.bin (71,681 bytes)", rc, 0, "write");
+    check_rc(ctx, "S01", "write /persist.bin (71,681 bytes)", rc, 0);
     r = make_req(NULL, "pdir", ROOT_INODE, 0, true);
     rc = write(&r);
-    check_rc(ctx, "S02", "create folder /pdir", rc, 0, "write");
+    check_rc(ctx, "S02", "create folder /pdir", rc, 0);
 }
  
 void fs_suite_persist_read(struct FsTestContext *ctx) {
@@ -606,8 +565,7 @@ void fs_suite_persist_read(struct FsTestContext *ctx) {
     int8_t rc;
  
     fs_test_info(ctx, "boot 2 of 2: data from boot 1 is still there");
-    if (!try_initialize(ctx, "S03", "load the disk"))
-        return;
+    initialize_filesystem_ext2();
     check_read_pattern(ctx, "S03", "read /persist.bin after restart", "persist.bin", ROOT_INODE, 71681);
     r = make_req(dir_buf, "pdir", ROOT_INODE, DIR_BUFFER_SIZE, true);
     rc = read_directory(&r);

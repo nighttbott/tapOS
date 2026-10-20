@@ -48,7 +48,7 @@ boot() {
     echo
     if grep -q TAPOS_TEST_DONE "$log" 2>/dev/null; then
         grep -v TAPOS_TEST_DONE "$log"
-        grep -q " 0 FAIL, 0 NOT IMPLEMENTED" "$log" || status=1
+        grep -q " 0 FAIL$" "$log" || status=1
     else
         echo "FAIL $name: no result after ${limit}s (hang, crash or too slow). Output so far:"
         cat "$log" 2>/dev/null
@@ -91,5 +91,5 @@ boot persist1 "$OUT/persist.bin"
 boot persist2 "$OUT/persist.bin"
 
 echo
-[ $status -eq 0 ] && echo "ALL QEMU TESTS PASSED" || echo "SOME QEMU TESTS FAILED OR ARE NOT IMPLEMENTED YET"
+[ $status -eq 0 ] && echo "ALL QEMU TESTS PASSED" || echo "SOME QEMU TESTS FAILED"
 exit $status

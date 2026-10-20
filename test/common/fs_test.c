@@ -1,7 +1,5 @@
 #include "fs_test.h"
 
-volatile uint32_t fs_stub_hits = 0;
-
 static char line[200];
 static uint32_t line_len;
 
@@ -43,7 +41,6 @@ void fs_test_init(struct FsTestContext *ctx, fs_test_printfn print) {
     ctx->print = print;
     ctx->passed = 0;
     ctx->failed = 0;
-    ctx->not_implemented = 0;
 }
 
 void fs_test_check(struct FsTestContext *ctx, const char *id, const char *what, bool ok, int32_t expected, int32_t actual) {
@@ -66,18 +63,6 @@ void fs_test_check(struct FsTestContext *ctx, const char *id, const char *what, 
         ctx->failed++;
 }
 
-void fs_test_not_implemented(struct FsTestContext *ctx, const char *id, const char *what, const char *func_name) {
-    line_reset();
-    line_add("TODO ");
-    line_add(id);
-    line_add(" ");
-    line_add(what);
-    line_add(" | not implemented yet: ");
-    line_add(func_name);
-    line_print(ctx);
-    ctx->not_implemented++;
-}
-
 void fs_test_info(struct FsTestContext *ctx, const char *text) {
     line_reset();
     line_add("---- ");
@@ -86,7 +71,7 @@ void fs_test_info(struct FsTestContext *ctx, const char *text) {
 }
 
 void fs_test_sum(struct FsTestContext *ctx, const char *suite) {
-    uint32_t total = ctx->passed + ctx->failed + ctx->not_implemented;
+    uint32_t total = ctx->passed + ctx->failed;
 
     line_reset();
     line_add("RESULT ");
@@ -97,9 +82,7 @@ void fs_test_sum(struct FsTestContext *ctx, const char *suite) {
     line_add_int((int32_t) total);
     line_add(" PASS, ");
     line_add_int((int32_t) ctx->failed);
-    line_add(" FAIL, ");
-    line_add_int((int32_t) ctx->not_implemented);
-    line_add(" NOT IMPLEMENTED");
+    line_add(" FAIL");
     line_print(ctx);
 }
 
