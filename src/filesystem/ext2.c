@@ -389,10 +389,12 @@ static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
                               uint32_t parent_inode,
                               const char *name,
                               uint8_t name_len,
+                              uint8_t wanted_file_type,
                               struct EXT2DirectoryEntry *entry_out) {
     struct EXT2Inode parent;
     struct BlockBuffer directory_block;
     uint32_t directory_blocks;
+    bool name_exists = false;
 
     if (context == NULL || entry_out == NULL ||
         !ext2_valid_name(name, name_len)) {
@@ -446,13 +448,15 @@ static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
             }
 
             memcpy(&entry, directory_block.buf + offset, sizeof(entry));
+            if (entry.name_len > UINT8_MAX) {
+                return -1;
+            }
             minimum_record_length =
                 get_entry_record_len((uint8_t)entry.name_len);
             if (entry.rec_len < sizeof(struct EXT2DirectoryEntry) ||
                 entry.rec_len < minimum_record_length ||
                 (entry.rec_len & 3u) != 0 ||
                 entry.rec_len > bytes_in_block - offset ||
-                entry.name_len > UINT8_MAX ||
                 name_offset + entry.name_len > offset + entry.rec_len) {
                 return -1;
             }
@@ -462,15 +466,19 @@ static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
             }
             if (entry.inode != 0 && entry.name_len == name_len &&
                 memcmp(directory_block.buf + name_offset, name, name_len) == 0) {
-                *entry_out = entry;
-                return 0;
+                name_exists = true;
+                if (wanted_file_type == EXT2_FT_UNKNOWN ||
+                    entry.file_type == wanted_file_type) {
+                    *entry_out = entry;
+                    return 0;
+                }
             }
 
             offset += entry.rec_len;
         }
     }
 
-    return 1;
+    return name_exists ? 3 : 1;
 }
 
 static bool ext2_read_cached_inode(uint32_t inode_number,
@@ -698,11 +706,14 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
 
     if (logical_block < EXT2_DOUBLE_INDIRECT_START) {
         uint32_t created = 0;
+        /* local copy: i_block lives in a packed struct, so no pointer into it */
+        uint32_t single_pointer = node->i_block[12];
 
-        if (!ext2_ensure_pointer_block(&node->i_block[12], preferred_bgd,
+        if (!ext2_ensure_pointer_block(&single_pointer, preferred_bgd,
                                        &created)) {
             return false;
         }
+        node->i_block[12] = single_pointer;
         read_blocks(&pointer_block, node->i_block[12], 1);
         memcpy(pointer_block.buf +
                    (logical_block - EXT2_SINGLE_INDIRECT_START) *
@@ -720,11 +731,13 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
         uint32_t double_created = 0;
         uint32_t first_created = 0;
         uint32_t first_pointer = 0;
+        uint32_t double_pointer = node->i_block[13];
 
-        if (!ext2_ensure_pointer_block(&node->i_block[13], preferred_bgd,
+        if (!ext2_ensure_pointer_block(&double_pointer, preferred_bgd,
                                        &double_created)) {
             return false;
         }
+        node->i_block[13] = double_pointer;
         read_blocks(&pointer_block, node->i_block[13], 1);
         memcpy(&first_pointer,
                pointer_block.buf + first_index * sizeof(uint32_t),
@@ -1178,9 +1191,19 @@ int8_t delete(struct EXT2DriverRequest request) {
         return -1;
     }
 
-    result = ext2_find_entry(&context, request.parent_inode, request.name,
-                             request.name_len, &entry);
+    /*
+     * File and directory entries may share a name.  Select the requested
+     * type during lookup instead of unlinking whichever matching entry was
+     * encountered first in the directory table.
+     */
+    result = ext2_find_entry(
+        &context, request.parent_inode, request.name, request.name_len,
+        request.is_directory ? EXT2_FT_DIR : EXT2_FT_REG_FILE, &entry);
     if (result == 1) {
+        return 1;
+    }
+    if (result == 3) {
+        /* A same-named entry of the other type is not this delete target. */
         return 1;
     }
     if (result == 2) {
@@ -1298,7 +1321,7 @@ int8_t read_directory(struct EXT2DriverRequest *request) {
         return -1;
     }
     if ((parent_inode.i_mode & 0xF000u) != EXT2_S_IFDIR) {
-        return 1;
+        return 3;
     }
 
     if (request->name_len == 1 && request->name[0] == '.') {
@@ -1340,12 +1363,16 @@ int8_t read_directory(struct EXT2DriverRequest *request) {
         directory_inode_number = dotdot.inode;
     } else {
         result = ext2_find_entry(&context, request->parent_inode,
-                                 request->name, request->name_len, &entry);
+                                 request->name, request->name_len,
+                                 EXT2_FT_DIR, &entry);
         if (result == 1) {
             return 2;
         }
         if (result == 2) {
             return 3;
+        }
+        if (result == 3) {
+            return 1;
         }
         if (result != 0) {
             return -1;
@@ -1541,12 +1568,15 @@ int8_t read(struct EXT2DriverRequest request) {
     }
 
     result = ext2_find_entry(&context, request.parent_inode, request.name,
-                             request.name_len, &entry);
+                             request.name_len, EXT2_FT_REG_FILE, &entry);
     if (result == 1) {
         return 3;
     }
     if (result == 2) {
         return 4;
+    }
+    if (result == 3) {
+        return 1;
     }
     if (result != 0) {
         return -1;
