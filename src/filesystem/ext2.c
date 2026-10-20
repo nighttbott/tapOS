@@ -694,11 +694,14 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
 
     if (logical_block < EXT2_DOUBLE_INDIRECT_START) {
         uint32_t created = 0;
+        /* local copy: i_block lives in a packed struct, so no pointer into it */
+        uint32_t single_pointer = node->i_block[12];
 
-        if (!ext2_ensure_pointer_block(&node->i_block[12], preferred_bgd,
+        if (!ext2_ensure_pointer_block(&single_pointer, preferred_bgd,
                                        &created)) {
             return false;
         }
+        node->i_block[12] = single_pointer;
         read_blocks(&pointer_block, node->i_block[12], 1);
         memcpy(pointer_block.buf +
                    (logical_block - EXT2_SINGLE_INDIRECT_START) *
@@ -716,11 +719,13 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
         uint32_t double_created = 0;
         uint32_t first_created = 0;
         uint32_t first_pointer = 0;
+        uint32_t double_pointer = node->i_block[13];
 
-        if (!ext2_ensure_pointer_block(&node->i_block[13], preferred_bgd,
+        if (!ext2_ensure_pointer_block(&double_pointer, preferred_bgd,
                                        &double_created)) {
             return false;
         }
+        node->i_block[13] = double_pointer;
         read_blocks(&pointer_block, node->i_block[13], 1);
         memcpy(&first_pointer,
                pointer_block.buf + first_index * sizeof(uint32_t),
