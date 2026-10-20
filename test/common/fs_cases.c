@@ -172,7 +172,15 @@ static void check_rc(struct FsTestContext *ctx, const char *id, const char *what
     else
         fs_test_check(ctx, id, what, rc == expected, expected, rc);
 }
- 
+
+// When a setup write is still a placeholder, record TODO instead of blaming the function under test
+static bool blocked_by_write(struct FsTestContext *ctx, const char *id, const char *what, int8_t setup_rc) {
+    if (setup_rc != FS_TEST_NOT_IMPLEMENTED)
+        return false;
+    fs_test_not_implemented(ctx, id, what, "write (needed to set up this test)");
+    return true;
+}
+
 // Reads a file into big and checks both the return code and every byte
 static void check_read_pattern(struct FsTestContext *ctx, const char *id, const char *what,
                                const char *name, uint32_t parent, uint32_t size) {
@@ -309,6 +317,88 @@ void fs_suite_boundary(struct FsTestContext *ctx) {
  
     check_read_pattern(ctx, "G01", "read /last0 (inode 112, last of group 0)", "last0", ROOT_INODE, 10);
     check_read_pattern(ctx, "G02", "read /first1 (inode 113, first of group 1)", "first1", ROOT_INODE, 12);
+
+    // root holds a file "dup" and, after it, a folder "dup"
+    check_read_pattern(ctx, "N04", "read /dup (the file)", "dup", ROOT_INODE, 5);
+    r = make_req(dir_buf, "dup", ROOT_INODE, DIR_BUFFER_SIZE, true);
+    rc = read_directory(&r);
+    fs_test_check(ctx, "N05", "read_directory /dup (the folder with the same name)", rc == 0, 0, rc);
+}
+
+/* ---------- suite: delete on the boundary fixture ---------- */
+
+static int8_t delete_name(const char *name, uint32_t parent, bool is_directory) {
+    return delete(make_req(NULL, name, parent, 0, is_directory));
+}
+
+void fs_suite_delete(struct FsTestContext *ctx) {
+    struct EXT2DriverRequest r;
+    struct FreeCounts before, after;
+    uint32_t docs, a, b, many, sum;
+    int8_t rc, rc2;
+
+    fs_test_info(ctx, "delete on test/fixtures/boundary.img");
+
+    // delete works on the state that initialize loads, so it must run first
+    if (!try_initialize(ctx, "X00", "load the disk before deleting"))
+        return;
+    docs = find_inode(ROOT_INODE, "docs");
+    a = find_inode(docs, "a");
+    b = find_inode(a, "b");
+    many = find_inode(ROOT_INODE, "many");
+
+    // s71681: 141 data blocks + 1 single-indirect + 1 double-indirect + 1 level-1 pointer block = 144
+    before = read_free_counts();
+    rc = delete_name("s71681", ROOT_INODE, false);
+    after = read_free_counts();
+    check_rc(ctx, "X10a", "delete /s71681", rc, 0, "delete");
+    r = make_req(big, "s71681", ROOT_INODE, BIG_BUFFER_SIZE, false);
+    rc = read(r);
+    fs_test_check(ctx, "X10b", "read the deleted file -> 3 not found", rc == 3, 3, rc);
+    fs_test_check(ctx, "X10c", "all 144 blocks and the inode come back",
+                  after.blocks == before.blocks + 144 && after.inodes == before.inodes + 1,
+                  (int32_t) (before.blocks + 144), (int32_t) after.blocks);
+
+    sum = disk_checksum();
+    rc = delete_name("docs", ROOT_INODE, true);
+    fs_test_check(ctx, "X11", "delete /docs (not empty) -> 2, disk unchanged",
+                  rc == 2 && disk_checksum() == sum, 2, rc);
+
+    rc = delete_name("docs", ROOT_INODE, false);
+    rc2 = delete_name("s0", ROOT_INODE, true);
+    fs_test_check(ctx, "X12", "wrong type (folder as file, file as folder) -> 1",
+                  rc == 1 && rc2 == 1, 1, rc == 1 ? rc2 : rc);
+
+    rc = delete_name("x", find_inode(ROOT_INODE, "s1"), false);
+    rc2 = delete_name("x", 999, false);
+    fs_test_check(ctx, "X13", "parent is a file or out of range -> 3",
+                  rc == 3 && rc2 == 3, 3, rc == 3 ? rc2 : rc);
+
+    rc = delete_name("e49", many, false);
+    r = make_req(dir_buf, "many", ROOT_INODE, DIR_BUFFER_SIZE, true);
+    rc2 = read_directory(&r);
+    fs_test_check(ctx, "X14a", "delete /many/e49 (entry in the folder's 2nd block), 51 entries left",
+                  rc == 0 && rc2 == 0 && count_entries(2) == 51,
+                  51, rc == 0 && rc2 == 0 ? (int32_t) count_entries(2) : rc);
+    check_read_pattern(ctx, "X14b", "its neighbour /many/e48 still reads", "e48", many, 3);
+
+    rc = delete_name("deep.txt", b, false);
+    if (rc == 0) rc = delete_name("b", a, true);
+    if (rc == 0) rc = delete_name("a", docs, true);
+    if (rc == 0) rc = delete_name("docs", ROOT_INODE, true);
+    fs_test_check(ctx, "X15", "delete /docs/a/b/deep.txt, then b, a, docs, one by one",
+                  rc == 0 && find_inode(ROOT_INODE, "docs") == 0, 0, rc);
+
+    if (try_initialize(ctx, "X16", "restart, deletes are still there")) {
+        r = make_req(big, "s71681", ROOT_INODE, BIG_BUFFER_SIZE, false);
+        rc = read(r);
+        fs_test_check(ctx, "X16a", "restart: /s71681 is still gone", rc == 3, 3, rc);
+        check_read_pattern(ctx, "X16b", "restart: /s6145 still reads", "s6145", ROOT_INODE, 6145);
+    }
+
+    rc = delete_name("dup", ROOT_INODE, true);
+    fs_test_check(ctx, "X17a", "delete the folder /dup (a file /dup comes first)", rc == 0, 0, rc);
+    check_read_pattern(ctx, "X17b", "the file /dup still reads", "dup", ROOT_INODE, 5);
 }
  
 /* ---------- suite: blank disk, the full life cycle (B and E) ---------- */
@@ -326,7 +416,7 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     struct EXT2Superblock *sb = (struct EXT2Superblock *) block.buf;
     struct FreeCounts before, after;
     uint32_t hello, dir1, dir2, sum;
-    int8_t rc;
+    int8_t rc, hello_rc, dir2_rc, inner_rc, big_rc = FS_TEST_NOT_IMPLEMENTED;
  
     fs_test_info(ctx, "format a zeroed disk, then create / read / delete (owners B and E)");
  
@@ -351,7 +441,7 @@ void fs_suite_blank(struct FsTestContext *ctx) {
  
     fill_pattern(513);
     r = make_req(big, "hello.txt", ROOT_INODE, 513, false);
-    rc = write(&r);
+    rc = hello_rc = write(&r);
     check_rc(ctx, "W01a", "write /hello.txt (513 bytes)", rc, 0, "write");
     if (rc == 0)
         check_read_pattern(ctx, "W01b", "read /hello.txt back, every byte equal", "hello.txt", ROOT_INODE, 513);
@@ -386,13 +476,17 @@ void fs_suite_blank(struct FsTestContext *ctx) {
         r = make_req(big, name, ROOT_INODE, write_sizes[i], false);
         rc = write(&r);
         check_rc(ctx, "W05a", name, rc, 0, "write");
+        big_rc = rc;   // the last one (w71681) is read again by P01
         if (rc == 0)
             check_read_pattern(ctx, "W05b", name, name, ROOT_INODE, write_sizes[i]);
     }
  
     r = make_req(NULL, "hello.txt", ROOT_INODE, 0, false);
     rc = delete(r);
-    check_rc(ctx, "X01a", "delete /hello.txt", rc, 0, "delete");
+    if (blocked_by_write(ctx, "X01a", "delete /hello.txt", hello_rc))
+        rc = FS_TEST_NOT_IMPLEMENTED;
+    else
+        check_rc(ctx, "X01a", "delete /hello.txt", rc, 0, "delete");
     if (rc == 0) {
         r = make_req(big, "hello.txt", ROOT_INODE, BIG_BUFFER_SIZE, false);
         rc = read(r);
@@ -400,14 +494,16 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     }
  
     r = make_req(NULL, "dir2", ROOT_INODE, 0, true);
-    write(&r);
+    dir2_rc = write(&r);
     dir2 = find_inode(ROOT_INODE, "dir2");
     fill_pattern(10);
     r = make_req(big, "inner", dir2 ? dir2 : 999, 10, false);
-    write(&r);
+    inner_rc = write(&r);
     r = make_req(NULL, "dir2", ROOT_INODE, 0, true);
     rc = delete(r);
-    check_rc(ctx, "X02", "delete a folder that is not empty -> 2", rc, 2, "delete");
+    if (!blocked_by_write(ctx, "X02", "delete a folder that is not empty -> 2",
+                          dir2_rc == FS_TEST_NOT_IMPLEMENTED ? dir2_rc : inner_rc))
+        check_rc(ctx, "X02", "delete a folder that is not empty -> 2", rc, 2, "delete");
  
     sum = disk_checksum();
     r = make_req(NULL, ".", ROOT_INODE, 0, true);
@@ -437,7 +533,8 @@ void fs_suite_blank(struct FsTestContext *ctx) {
         check_counts(ctx, "X05", "create then delete: free blocks and inodes back to the start value",
                      rc == 0 && rc2 == 0, before, after);
  
-    if (try_initialize(ctx, "P01", "restart (initialize again), data still there"))
+    if (try_initialize(ctx, "P01", "restart (initialize again), data still there") &&
+        !blocked_by_write(ctx, "P01", "restart, then read /w71681", big_rc))
         check_read_pattern(ctx, "P01", "restart, then read /w71681", "w71681", ROOT_INODE, 71681);
  
 #ifdef FS_TEST_SKIP_FULL_DISK

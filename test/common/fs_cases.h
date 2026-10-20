@@ -9,6 +9,9 @@ void fs_suite_team_fixture(struct FsTestContext *ctx);
 // read test on test/fixtures/boundary.img: size edges, indirect blocks, nesting, inode 112/113
 void fs_suite_boundary(struct FsTestContext *ctx);
 
+// delete on test/fixtures/boundary.img: errors, freed space, nested folders, restart
+void fs_suite_delete(struct FsTestContext *ctx);
+
 // format a zeroed disk, then CRUD, restart, and fill it
 void fs_suite_blank(struct FsTestContext *ctx);
 
