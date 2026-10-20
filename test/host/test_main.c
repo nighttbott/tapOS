@@ -8,7 +8,7 @@
 /*
  * laptop test runner.
  *   test_fs <suite> <image | --blank> [--save out.img]
- * duites: team, boundary, blank, existing
+ * suites: team, boundary, blank, existing, delete
  * exit code 0 only when every check passed (TODO counts as not passed).
  */
 
@@ -26,6 +26,7 @@ static const struct Suite suites[] = {
     { "boundary", fs_suite_boundary },
     { "blank", fs_suite_blank },
     { "existing", fs_suite_existing },
+    { "delete", fs_suite_delete },
 };
 
 int main(int argc, char **argv) {
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
     struct FsTestContext ctx;
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <team|boundary|blank|existing> <image|--blank> [--save out.img]\n", argv[0]);
+        fprintf(stderr, "usage: %s <team|boundary|blank|existing|delete> <image|--blank> [--save out.img]\n", argv[0]);
         return 2;
     }
     if (argc == 5 && strcmp(argv[3], "--save") == 0)

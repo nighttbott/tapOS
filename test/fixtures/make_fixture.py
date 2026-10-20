@@ -172,6 +172,12 @@ first1 = alloc_inode(113)              # first inode of group 1, data block in g
 add_file(first1, 12, group=1)
 root_children += [("last0", last0, FT_REG), ("first1", first1, FT_REG)]
 
+# a file and a folder with the same name (allowed by write); the file entry comes first
+dup_file, dup_dir = alloc_inode(), alloc_inode()
+add_file(dup_file, 5)
+add_dir(dup_dir, root, [])
+root_children += [("dup", dup_file, FT_REG), ("dup", dup_dir, FT_DIR)]
+
 add_dir(root, root, root_children)
 
 # ---------- boot block, superblock, group descriptors, bitmaps ----------
@@ -198,7 +204,7 @@ for g in range(GROUPS):
     disk[(start + 1) * BLOCK:(start + 2) * BLOCK] = inode_bits
     free_b = BLOCKS_PER_GROUP - sum(1 for b in range(lo, lo + BLOCKS_PER_GROUP) if b in used_blocks)
     free_i = INODES_PER_GROUP - sum(1 for i in range(INODES_PER_GROUP) if g * INODES_PER_GROUP + i + 1 in used_inodes)
-    dirs = 4 + 1 if g == 0 else 0     # root, docs, a, b, many all live in group 0
+    dirs = 6 if g == 0 else 0         # root, docs, a, b, many, dup all live in group 0
     struct.pack_into("<3I4H3I", disk, 2 * BLOCK + g * 32, start, start + 1, inode_table(g),
                      free_b, free_i, dirs, 0, 0, 0, 0)
     free_blocks_total += free_b
