@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "header/memory/paging.h"
+#include "header/memory/swap.h"
 #include "header/stdlib/string.h"
 
 /**
@@ -118,6 +119,8 @@ static uint32_t paging_find_free_frame(void) {
 uint32_t paging_acquire_frame(void) {
     uint32_t page_frame_number = paging_find_free_frame();
 
+    if (page_frame_number == 0 && swap_replace_page())
+        page_frame_number = paging_find_free_frame();
     if (page_frame_number == 0)
         return 0;
 
@@ -192,10 +195,15 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
         return false;
 
     struct PageTableEntry *entry = paging_get_page_table_entry(page_dir, virtual_addr);
-    if (entry == NULL || !entry->flag.present_bit)
+    if (entry == NULL)
         return false;
 
-    paging_release_frame(entry->physical_page_base_address);
+    if (entry->flag.present_bit)
+        paging_release_frame(entry->physical_page_base_address);
+    else if (entry->ignored & PTE_IGNORED_SWAPPED)
+        swap_release_slot(entry->physical_page_base_address);
+    else
+        return false;
 
     *entry = (struct PageTableEntry) {0};
     flush_single_tlb(virtual_addr);

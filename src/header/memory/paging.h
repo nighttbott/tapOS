@@ -83,7 +83,7 @@ struct PageDirectoryEntry {
 
 /**
  * Page Table Entry, for page size 4 KB.
- * @param physical_page_base_address Frame number
+ * @param physical_page_base_address Frame number, or swap slot when PTE_IGNORED_SWAPPED is set
  */
 struct PageTableEntry {
     struct PageTableEntryFlag flag;
@@ -91,6 +91,9 @@ struct PageTableEntry {
     uint32_t ignored                    : 3;
     uint32_t physical_page_base_address : 20;
 } __attribute__((packed));
+
+// Stored in PageTableEntry.ignored while present_bit is 0: the page is in swap space
+#define PTE_IGNORED_SWAPPED 0x1u
 
 _Static_assert(sizeof(struct PageDirectoryEntry) == 4, "PDE must be 4 bytes");
 _Static_assert(sizeof(struct PageTableEntry) == 4, "PTE must be 4 bytes");
@@ -173,8 +176,8 @@ void flush_single_tlb(void *virtual_addr);
 
 /* --- Frame ownership, used by swap --- */
 /**
- * Take one free frame
- * @return Frame number, 0 when memory is full
+ * Take one free frame, replacing a page when none is free
+ * @return Frame number, 0 when memory and swap are both full
  */
 uint32_t paging_acquire_frame(void);
 
@@ -206,7 +209,7 @@ bool paging_allocate_check(uint32_t amount);
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
 
 /**
- * Deallocate single user page frame in page directory
+ * Deallocate single user page frame in page directory, including a page in swap
  *
  * @param page_dir      Page directory to update
  * @param virtual_addr  Virtual address to be deallocated

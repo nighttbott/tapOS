@@ -3,10 +3,12 @@
 #include "header/cpu/idt.h"
 #include "header/cpu/interrupt.h"
 #include "header/memory/paging.h"
+#include "header/memory/swap.h"
 #include "fs_test.h"
 #include "mem_cases.h"
 
 #define MEM_TEST_BASE 0x00100000u
+#define MEM_TEST_SWAP_PAGES (PAGE_FRAME_MAX_COUNT - KERNEL_RESERVED_PAGE_FRAME_COUNT + 64u)
 
 extern struct PageManagerState page_manager_state;
 
@@ -39,10 +41,11 @@ void mem_suite_frames(struct FsTestContext *ctx) {
             intact = *(volatile uint32_t *) page_addr(page) == page && intact;
         fs_test_check(ctx, "M04", "pages do not share a frame", intact, 1, intact);
 
-        fs_test_check(ctx, "M05", "full memory is refused", !paging_allocate_user_page_frame(page_dir, (void *) page_addr(pages)), 1, 1);
+        bool replaced = paging_allocate_user_page_frame(page_dir, (void *) page_addr(pages));
+        fs_test_check(ctx, "M05", "full memory replaces a page", replaced, 1, replaced);
 
         bool freed = true;
-        for (uint32_t page = 0; page < pages; page++)
+        for (uint32_t page = 0; page <= pages; page++)
             freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
         fs_test_check(ctx, "M06", "every page can be freed", freed, 1, freed);
         fs_test_check(ctx, "M07", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before - 1u,
@@ -76,4 +79,66 @@ void mem_suite_fault(struct FsTestContext *ctx) {
     bool freed = paging_free_user_page_frame(page_dir, (void *) page_addr(0)) &&
                  paging_free_user_page_frame(page_dir, (void *) page_addr(1));
     fs_test_check(ctx, "F04", "faulted pages can be freed", freed, 1, freed);
+}
+
+static uint32_t swap_pattern(uint32_t page, uint32_t offset) {
+    return (page * 2654435761u) ^ (offset * 40503u) ^ 0x5A5AA5A5u;
+}
+
+// More pages than RAM can hold: every extra page has to go through swap
+void mem_suite_swap(struct FsTestContext *ctx) {
+    pic_remap();
+    initialize_idt();
+    paging_initialize();
+
+    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
+    uint32_t free_frames_before = page_manager_state.free_page_frame_count;
+    uint32_t pages = MEM_TEST_SWAP_PAGES;
+    int32_t bad_page = -1;
+
+    fs_test_check(ctx, "S01", "test uses more pages than RAM has", pages > free_frames_before, 1, pages > free_frames_before);
+
+    for (uint32_t page = 0; page < pages; page++) {
+        volatile uint32_t *words = (volatile uint32_t *) page_addr(page);
+        for (uint32_t i = 0; i < PAGE_FRAME_SIZE / sizeof(uint32_t); i++)
+            words[i] = swap_pattern(page, i);
+    }
+    fs_test_check(ctx, "S02", "pages went to swap", swap_manager.free_count < PAGE_FRAME_ON_SWAP_MAX_COUNT,
+                  1, swap_manager.free_count < PAGE_FRAME_ON_SWAP_MAX_COUNT);
+
+    for (uint32_t round = 0; round < 2 && bad_page < 0; round++) {
+        for (uint32_t page = 0; page < pages && bad_page < 0; page++) {
+            volatile uint32_t *words = (volatile uint32_t *) page_addr(page);
+            for (uint32_t i = 0; i < PAGE_FRAME_SIZE / sizeof(uint32_t); i++) {
+                if (words[i] != swap_pattern(page, i)) {
+                    bad_page = (int32_t) page;
+                    break;
+                }
+            }
+        }
+    }
+    fs_test_check(ctx, "S03", "every page still has its data", bad_page == -1, -1, bad_page);
+
+    bool freed = true;
+    for (uint32_t page = 0; page < pages; page++)
+        freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
+    fs_test_check(ctx, "S04", "every page can be freed", freed, 1, freed);
+    fs_test_check(ctx, "S05", "no swap slot leaked", swap_manager.free_count == PAGE_FRAME_ON_SWAP_MAX_COUNT,
+                  PAGE_FRAME_ON_SWAP_MAX_COUNT, (int32_t) swap_manager.free_count);
+    // One frame stays with the page table of this test
+    fs_test_check(ctx, "S06", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before - 1u,
+                  (int32_t) free_frames_before - 1, (int32_t) page_manager_state.free_page_frame_count);
+
+    // RAM and swap both full: allocation has to fail, not overwrite a slot
+    uint32_t capacity = free_frames_before - 1u + PAGE_FRAME_ON_SWAP_MAX_COUNT;
+    uint32_t allocated = 0;
+    while (paging_allocate_user_page_frame(page_dir, (void *) page_addr(allocated)))
+        allocated++;
+    fs_test_check(ctx, "S07", "allocation stops when swap is full", allocated == capacity, (int32_t) capacity, (int32_t) allocated);
+
+    freed = true;
+    for (uint32_t page = 0; page < allocated; page++)
+        freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
+    fs_test_check(ctx, "S08", "full swap can be emptied", freed && swap_manager.free_count == PAGE_FRAME_ON_SWAP_MAX_COUNT,
+                  PAGE_FRAME_ON_SWAP_MAX_COUNT, (int32_t) swap_manager.free_count);
 }

@@ -60,4 +60,4 @@ iso: kernel
 	@rm -r $(OUTPUT_FOLDER)/iso/
 disk:
 	@mkdir -p $(OUTPUT_FOLDER)
-	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 4M
+	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 5M
