@@ -34,7 +34,7 @@ A FAIL goes to the owner of the function with: test ID, input, expected, actual,
 
 ## Memory tests
 
-Run from the repo root. `<MiB>` is the RAM size, use 5 or 6. `<suite>` is `mem_suite_frames`, `mem_suite_fault` or `mem_suite_swap`.
+Run from the repo root. `<MiB>` is the RAM size, use 5 or 6. `<suite>` is `mem_suite_frames`, `mem_suite_fault`, `mem_suite_swap` or `mem_suite_load`.
 
 ```bash
 bash test/qemu/run_mem_tests.sh <MiB> <suite>

@@ -2,12 +2,14 @@
 #include <stdbool.h>
 #include "header/cpu/idt.h"
 #include "header/cpu/interrupt.h"
+#include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
 #include "header/memory/swap.h"
 #include "fs_test.h"
 #include "mem_cases.h"
 
 #define MEM_TEST_BASE 0x00100000u
+#define MEM_TEST_LOAD_SIZE 0x100000u
 #define MEM_TEST_SWAP_PAGES (PAGE_FRAME_MAX_COUNT - KERNEL_RESERVED_PAGE_FRAME_COUNT + 64u)
 
 extern struct PageManagerState page_manager_state;
@@ -141,4 +143,48 @@ void mem_suite_swap(struct FsTestContext *ctx) {
         freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
     fs_test_check(ctx, "S08", "full swap can be emptied", freed && swap_manager.free_count == PAGE_FRAME_ON_SWAP_MAX_COUNT,
                   PAGE_FRAME_ON_SWAP_MAX_COUNT, (int32_t) swap_manager.free_count);
+}
+
+// Load a file to address 0 like the kernel loads the shell, it does not fit in low RAM
+void mem_suite_load(struct FsTestContext *ctx) {
+    pic_remap();
+    initialize_idt();
+    paging_initialize();
+    initialize_filesystem_ext2();
+
+    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
+    volatile uint32_t load_addr = 0;
+    uint8_t *source = (uint8_t *) MEM_TEST_BASE;
+    uint8_t *target = (uint8_t *) load_addr;
+    uint32_t pages = MEM_TEST_LOAD_SIZE / PAGE_FRAME_SIZE;
+    uint32_t swap_free_before = swap_manager.free_count;
+
+    for (uint32_t i = 0; i < MEM_TEST_LOAD_SIZE; i++)
+        source[i] = fs_test_pattern(i, MEM_TEST_LOAD_SIZE);
+
+    struct EXT2DriverRequest request = {
+        .buf          = source,
+        .name         = "shell",
+        .name_len     = 5,
+        .parent_inode = 1,
+        .buffer_size  = MEM_TEST_LOAD_SIZE,
+        .is_directory = false,
+    };
+    int8_t retcode = write(&request);
+    fs_test_check(ctx, "L01", "file is written", retcode == 0, 0, retcode);
+
+    bool freed = true;
+    for (uint32_t page = 0; page < pages; page++)
+        freed = paging_free_user_page_frame(page_dir, source + page * PAGE_FRAME_SIZE) && freed;
+    fs_test_check(ctx, "L02", "source pages can be freed", freed && swap_manager.free_count == swap_free_before, 1, freed);
+
+    bool needs_swap = pages > page_manager_state.free_page_frame_count;
+    request.buf = target;
+    retcode = read(request);
+    fs_test_check(ctx, "L03", "file is read to address 0", retcode == 0, 0, retcode);
+    bool used_swap = swap_manager.free_count < swap_free_before;
+    fs_test_check(ctx, "L04", "swap is used only when RAM is too small", used_swap == needs_swap, needs_swap, used_swap);
+
+    int32_t mismatch = fs_test_first_mismatch(target, MEM_TEST_LOAD_SIZE);
+    fs_test_check(ctx, "L05", "loaded bytes are correct", mismatch == -1, -1, mismatch);
 }
