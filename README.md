@@ -53,6 +53,13 @@ Implementasi saat ini mencakup **Milestone 1 dan Milestone 2**.
 - Penolakan penghapusan direktori yang masih berisi.
 - Pembatalan alokasi parsial jika penulisan gagal karena ruang tidak mencukupi.
 
+### Milestone 3 — Memory Manager
+
+- Paging 4 KiB dengan higher half kernel.
+- Frame allocator dan deallocator.
+- Page fault handler dengan alokasi page saat pertama diakses.
+- Swap space 1 MiB setelah area EXT2 dan page replacement Clock.
+
 ## Lingkungan Pengembangan
 
 | Tool | Versi yang digunakan |
@@ -99,6 +106,8 @@ test -f bin/storage.bin || make disk
 ```
 
 Disk disimpan pada `bin/storage.bin`. Filesystem diinisialisasi otomatis ketika disk baru digunakan.
+
+`make disk` membuat disk 5 MiB: 4 MiB untuk filesystem dan 1 MiB untuk swap. Disk 4 MiB yang sudah ada dapat diperbesar tanpa menghapus isinya dengan `truncate -s 5M bin/storage.bin`.
 
 **Jangan menjalankan `make disk` kembali pada disk yang ingin dipertahankan karena perintah tersebut membuat ulang disk image.**
 

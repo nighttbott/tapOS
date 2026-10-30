@@ -11,6 +11,9 @@
 #define PIC1_OFFSET          0x20
 #define PIC2_OFFSET          0x28
 
+// CPU exception vector
+#define PAGE_FAULT_VECTOR    0x0E
+
 // PIC ports
 #define PIC1                 0x20
 #define PIC2                 0xA0

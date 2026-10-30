@@ -5,6 +5,7 @@
 #include "header/text/framebuffer.h"
 #include "fs_test.h"
 #include "fs_cases.h"
+#include "mem_cases.h"
 #include "serial.h"
 
 /*

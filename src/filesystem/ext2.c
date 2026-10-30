@@ -1593,9 +1593,6 @@ int8_t read(struct EXT2DriverRequest request) {
     if (request.buffer_size < inode.i_size) {
         return 2;
     }
-    if (inode.i_size != 0 && request.buf == NULL) {
-        return -1;
-    }
     if (inode.i_size > DISK_SPACE ||
         inode.i_size / BLOCK_SIZE +
             (inode.i_size % BLOCK_SIZE != 0) > EXT2_MAX_DATA_BLOCKS) {
