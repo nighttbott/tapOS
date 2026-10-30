@@ -9,10 +9,12 @@
 #include "header/driver/disk.h"
 #include "header/stdlib/string.h"
 #include "header/filesystem/ext2.h"
+#include "header/memory/paging.h"
 
 
 void kernel_setup(void) {
     load_gdt(&_gdt_gdtr);
+    paging_initialize();
     pic_remap();
     initialize_idt();
     activate_keyboard_interrupt();
