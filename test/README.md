@@ -31,3 +31,11 @@ A FAIL goes to the owner of the function with: test ID, input, expected, actual,
 | `fixtures/sample-image.bin` | Team fixture (note: its layout overlaps group 1 metadata, see fsck)                                       |
 | `qemu/test_kernel.c`        | Kernel that runs one suite and prints to the serial port                                                  |
 | `qemu/serial.c/.h`          | COM1 output so the script can read results                                                                |
+
+## Memory tests
+
+Run from the repo root. `<MiB>` is the RAM size, use 5 or 6. `<suite>` is `mem_suite_frames`, `mem_suite_fault` or `mem_suite_swap`.
+
+```bash
+bash test/qemu/run_mem_tests.sh <MiB> <suite>
+```
