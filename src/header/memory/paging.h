@@ -121,6 +121,15 @@ struct PageManagerState {
     uint32_t free_page_frame_count;
 } __attribute__((packed));
 
+/**
+ * Who uses a frame. page_dir stays NULL for frames that cannot be replaced,
+ * such as page tables and frames that are being set up.
+ */
+struct FrameOwner {
+    struct PageDirectory *page_dir;
+    void                 *virtual_addr;
+};
+
 // Install the recursive entry. Call once from kernel_setup before any allocation
 void paging_initialize(void);
 
@@ -146,6 +155,12 @@ void update_page_directory_entry(
  */
 struct PageTable *paging_get_page_table(struct PageDirectory *page_dir, uint32_t page_directory_index);
 
+/**
+ * Get the entry of a virtual address without creating a page table
+ * @return Entry pointer, NULL when its page table does not exist
+ */
+struct PageTableEntry *paging_get_page_table_entry(struct PageDirectory *page_dir, void *virtual_addr);
+
 // Page directory that is loaded in CR3, as a kernel virtual address
 struct PageDirectory *paging_get_current_page_directory_addr(void);
 
@@ -155,5 +170,48 @@ struct PageDirectory *paging_get_current_page_directory_addr(void);
  * @param virtual_addr Virtual address to flush
  */
 void flush_single_tlb(void *virtual_addr);
+
+/* --- Frame ownership, used by swap --- */
+/**
+ * Take one free frame
+ * @return Frame number, 0 when memory is full
+ */
+uint32_t paging_acquire_frame(void);
+
+// Give a frame back to the free pool
+void paging_release_frame(uint32_t page_frame_number);
+
+// Make a frame replaceable. It belongs to virtual_addr on page_dir
+void paging_set_frame_owner(uint32_t page_frame_number, struct PageDirectory *page_dir, void *virtual_addr);
+
+// @return Owner of a frame, NULL for reserved or out of range frames
+const struct FrameOwner *paging_get_frame_owner(uint32_t page_frame_number);
+
+/* --- Memory Management --- */
+/**
+ * Check whether a certain amount of physical memory is available
+ *
+ * @param amount Requested amount of physical memory in bytes
+ * @return       Return true when there's enough free memory available
+ */
+bool paging_allocate_check(uint32_t amount);
+
+/**
+ * Allocate single user page frame in page directory
+ *
+ * @param page_dir     Page directory to update
+ * @param virtual_addr Virtual address to be allocated
+ * @return             Will return true if success, false otherwise
+ */
+bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
+
+/**
+ * Deallocate single user page frame in page directory
+ *
+ * @param page_dir      Page directory to update
+ * @param virtual_addr  Virtual address to be deallocated
+ * @return              Will return true if success, false otherwise
+ */
+bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
 
 #endif

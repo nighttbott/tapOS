@@ -1,0 +1,9 @@
+#ifndef _MEM_CASES_H
+#define _MEM_CASES_H
+
+#include "fs_test.h"
+
+// SYSTEM_MEMORY_MB and QEMU -m must be equal
+void mem_suite_frames(struct FsTestContext *ctx);
+
+#endif
