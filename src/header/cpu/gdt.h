@@ -11,6 +11,9 @@
 */ 
 #define GDT_KERNEL_CODE_SEGMENT_SELECTOR 0x8
 #define GDT_KERNEL_DATA_SEGMENT_SELECTOR 0x10
+#define GDT_USER_CODE_SEGMENT_SELECTOR   0x1B
+#define GDT_USER_DATA_SEGMENT_SELECTOR   0x23
+#define GDT_TSS_SEGMENT_SELECTOR         0x28
 
 extern struct GDTR _gdt_gdtr;
 
@@ -66,5 +69,56 @@ struct GDTR {
     uint16_t                     size;
     struct GlobalDescriptorTable *address;
 } __attribute__((packed));
+
+/** x86 32-bit Task State Segment used on Ring 3 -> Ring 0 transitions. */
+struct TaskStateSegment {
+    uint32_t previous_task;
+    uint32_t esp0;
+    uint16_t ss0;
+    uint16_t reserved0;
+    uint32_t esp1;
+    uint16_t ss1;
+    uint16_t reserved1;
+    uint32_t esp2;
+    uint16_t ss2;
+    uint16_t reserved2;
+    uint32_t cr3;
+    uint32_t eip;
+    uint32_t eflags;
+    uint32_t eax;
+    uint32_t ecx;
+    uint32_t edx;
+    uint32_t ebx;
+    uint32_t esp;
+    uint32_t ebp;
+    uint32_t esi;
+    uint32_t edi;
+    uint16_t es;
+    uint16_t reserved3;
+    uint16_t cs;
+    uint16_t reserved4;
+    uint16_t ss;
+    uint16_t reserved5;
+    uint16_t ds;
+    uint16_t reserved6;
+    uint16_t fs;
+    uint16_t reserved7;
+    uint16_t gs;
+    uint16_t reserved8;
+    uint16_t ldt_selector;
+    uint16_t reserved9;
+    uint16_t debug_trap;
+    uint16_t io_map_base;
+} __attribute__((packed));
+
+extern struct TaskStateSegment _tss;
+
+void initialize_tss(void);
+void tss_set_kernel_stack(void *stack_top);
+__attribute__((noreturn)) void enter_user_mode(void *entry, void *stack_top);
+extern void set_tss_register(void);
+
+_Static_assert(sizeof(struct TaskStateSegment) == 104,
+               "TaskStateSegment must be 104 bytes");
 
 #endif
