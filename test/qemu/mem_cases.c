@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include "header/cpu/idt.h"
+#include "header/cpu/interrupt.h"
 #include "header/memory/paging.h"
 #include "fs_test.h"
 #include "mem_cases.h"
@@ -49,4 +51,29 @@ void mem_suite_frames(struct FsTestContext *ctx) {
 
     fs_test_check(ctx, "M08", "kernel address is refused", !paging_allocate_user_page_frame(page_dir, (void *) KERNEL_VIRTUAL_ADDRESS_BASE), 1, 1);
     fs_test_check(ctx, "M09", "freeing twice is refused", !paging_free_user_page_frame(page_dir, (void *) page_addr(0)), 1, 1);
+}
+
+// Touch pages that were never allocated, the page fault handler has to map them
+void mem_suite_fault(struct FsTestContext *ctx) {
+    pic_remap();
+    initialize_idt();
+    paging_initialize();
+
+    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
+    uint32_t free_frames_before = page_manager_state.free_page_frame_count;
+    volatile uint32_t *read_page  = (volatile uint32_t *) page_addr(0);
+    volatile uint32_t *write_page = (volatile uint32_t *) page_addr(1);
+
+    fs_test_check(ctx, "F01", "first read gives a zeroed page", *read_page == 0, 0, (int32_t) *read_page);
+
+    *write_page = 0x12345678u;
+    fs_test_check(ctx, "F02", "first write is kept", *write_page == 0x12345678u, 0x12345678, (int32_t) *write_page);
+
+    // Two pages and their page table
+    fs_test_check(ctx, "F03", "each fault takes one frame", page_manager_state.free_page_frame_count == free_frames_before - 3u,
+                  (int32_t) free_frames_before - 3, (int32_t) page_manager_state.free_page_frame_count);
+
+    bool freed = paging_free_user_page_frame(page_dir, (void *) page_addr(0)) &&
+                 paging_free_user_page_frame(page_dir, (void *) page_addr(1));
+    fs_test_check(ctx, "F04", "faulted pages can be freed", freed, 1, freed);
 }

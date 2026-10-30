@@ -4,6 +4,7 @@
 #include "header/cpu/interrupt.h"
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
+#include "header/memory/swap.h"
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
@@ -78,6 +79,9 @@ static void exception_panic(const struct InterruptFrame *frame) {
     exception_write_text(4, 0, "EIP        : 0x");
     exception_write_hex(4, 14, frame->int_stack.eip);
 
+    exception_write_text(5, 0, "CR2        : 0x");
+    exception_write_hex(5, 14, read_cr2());
+
     exception_write_text(6, 0, "Kernel dihentikan");
 
     while (true) {
@@ -86,6 +90,8 @@ static void exception_panic(const struct InterruptFrame *frame) {
 }
 
 void main_interrupt_handler(struct InterruptFrame frame) {
+    if (frame.int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame.int_stack.error_code))
+        return;
     if (frame.int_number < 32U){
         exception_panic(&frame);
     }

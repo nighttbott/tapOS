@@ -5,5 +5,6 @@
 
 // SYSTEM_MEMORY_MB and QEMU -m must be equal
 void mem_suite_frames(struct FsTestContext *ctx);
+void mem_suite_fault(struct FsTestContext *ctx);
 
 #endif
