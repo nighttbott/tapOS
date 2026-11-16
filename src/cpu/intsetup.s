@@ -46,10 +46,11 @@ segment_register_setup:
     pop eax
     popf
 
-    ; Use the current esp as base stack frame, this is only for main_interrupt_handler()
-    mov  ebp, esp 
-    ; Call the C function
+    ; Pass the live frame to C. C may update saved registers (notably EAX for a
+    ; syscall) and those values will then be restored by popad/iret.
+    push esp
     call main_interrupt_handler
+    add  esp, 4
 
     ; Restore general-purpose & index register
     popad   ; Note: This instruction is not fully symmetric with pushad. $esp value is skipped

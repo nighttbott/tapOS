@@ -26,6 +26,12 @@
 #define PIC_ACK              0x20
 #define PIC_DISABLE_ALL_MASK 0xFF
 
+// PIT channel 0 drives IRQ0 on the master PIC.
+#define PIT_CHANNEL0_DATA    0x40
+#define PIT_COMMAND          0x43
+#define PIT_INPUT_HZ         1193182u
+#define PIT_COMMAND_CHANNEL0 0x36
+
 // PIC remap constants
 #define ICW1_ICW4            0x01   /* ICW4 (not) needed */
 #define ICW1_SINGLE          0x02   /* Single (cascade) mode */
@@ -77,8 +83,8 @@ struct CPURegister {
         uint32_t esi;
     } __attribute__((packed)) index;
     struct {
-        uint32_t esp;
         uint32_t ebp;
+        uint32_t esp;
     } __attribute__((packed)) stack;
     struct {
         uint32_t ebx;
@@ -128,6 +134,14 @@ struct InterruptFrame {
     struct InterruptStack int_stack;
 } __attribute__((packed));
 
+/* pushad stores EBP before the saved ESP; keep this C view ABI-identical. */
+_Static_assert(offsetof(struct CPURegister, stack.ebp) == 8,
+               "CPURegister EBP offset must match pushad");
+_Static_assert(offsetof(struct CPURegister, stack.esp) == 12,
+               "CPURegister ESP offset must match pushad");
+_Static_assert(offsetof(struct InterruptFrame, int_number) == 48,
+               "InterruptFrame interrupt number offset must match ISR");
+
 
 
 // Activate PIC mask for keyboard only
@@ -149,12 +163,24 @@ void pic_remap(void);
  * This function will be called first if any INT 0x00 - 0x40 is raised, 
  * and will call proper ISR for respective interrupt / exception.
  * 
- * If inter-privilege interrupt raised, SS and ESP is automatically out of main_interrupt_handler()
- * parameter. Can be checked with ((int*) info) + 4 for user $esp, 5 for user $ss
+ * For an inter-privilege interrupt, the corrected ISR copies the hardware user
+ * ESP into frame->cpu.stack.esp. The hardware SS remains after int_stack.
  * 
  * Again, this function is not for normal function call, all parameter will be automatically set when interrupt is called.
  * @param frame Information about CPU during interrupt is raised
  */
-void main_interrupt_handler(struct InterruptFrame frame);
+void main_interrupt_handler(struct InterruptFrame *frame);
+
+/** Configure PIT channel 0 and unmask IRQ0. `frequency_hz` is clamped to 1..PIT_INPUT_HZ. */
+void pit_initialize(uint32_t frequency_hz);
+
+/** Number of IRQ0 ticks observed since PIT initialization. */
+uint32_t pit_get_ticks(void);
+
+/**
+ * Install the scheduler's IRQ0 hook. The hook runs after IRQ0 is acknowledged,
+ * so a context switch cannot leave the PIC in-service.
+ */
+void interrupt_set_timer_handler(void (*handler)(struct InterruptFrame *frame));
 
 #endif

@@ -5,6 +5,10 @@
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
 #include "header/memory/swap.h"
+#include "header/cpu/syscall.h"
+
+static volatile uint32_t pit_ticks;
+static void (*timer_handler)(struct InterruptFrame *frame);
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
@@ -42,6 +46,36 @@ void pic_remap(void) {
     // Disable all interrupts
     out(PIC1_DATA, PIC_DISABLE_ALL_MASK);
     out(PIC2_DATA, PIC_DISABLE_ALL_MASK);
+}
+
+void pit_initialize(uint32_t frequency_hz) {
+    uint32_t divisor;
+
+    if (frequency_hz == 0) {
+        frequency_hz = 1;
+    }
+    if (frequency_hz > PIT_INPUT_HZ) {
+        frequency_hz = PIT_INPUT_HZ;
+    }
+
+    divisor = PIT_INPUT_HZ / frequency_hz;
+    if (divisor == 0 || divisor > 0xFFFFu) {
+        divisor = 0xFFFFu;
+    }
+
+    pit_ticks = 0;
+    out(PIT_COMMAND, PIT_COMMAND_CHANNEL0);
+    out(PIT_CHANNEL0_DATA, (uint8_t)(divisor & 0xFFu));
+    out(PIT_CHANNEL0_DATA, (uint8_t)(divisor >> 8));
+    out(PIC1_DATA, in(PIC1_DATA) & ~(1u << IRQ_TIMER));
+}
+
+uint32_t pit_get_ticks(void) {
+    return pit_ticks;
+}
+
+void interrupt_set_timer_handler(void (*handler)(struct InterruptFrame *frame)) {
+    timer_handler = handler;
 }
 
 static void exception_write_text(uint8_t row, uint8_t col, const char *text) {
@@ -89,15 +123,29 @@ static void exception_panic(const struct InterruptFrame *frame) {
     }
 }
 
-void main_interrupt_handler(struct InterruptFrame frame) {
-    if (frame.int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame.int_stack.error_code))
+void main_interrupt_handler(struct InterruptFrame *frame) {
+    if (frame == NULL) {
         return;
-    if (frame.int_number < 32U){
-        exception_panic(&frame);
     }
-    switch (frame.int_number) {
+    if (frame->int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame->int_stack.error_code))
+        return;
+    if (frame->int_number < 32U){
+        exception_panic(frame);
+    }
+    switch (frame->int_number) {
+        case PIC1_OFFSET + IRQ_TIMER:
+            /* ACK before scheduler hook: a non-returning context switch is safe. */
+            pic_ack(IRQ_TIMER);
+            pit_ticks++;
+            if (timer_handler != NULL) {
+                timer_handler(frame);
+            }
+            break;
         case PIC1_OFFSET + IRQ_KEYBOARD :
             keyboard_isr();
+            break;
+        case SYSCALL_VECTOR:
+            syscall_dispatch(frame);
             break;
     }
 }
