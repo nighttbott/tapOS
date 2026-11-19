@@ -7,7 +7,7 @@
 #define SHELL_LINE_MAX      128
 #define SHELL_MAX_ARGS      16
 #define SHELL_MAX_STAGES    4      // most commands in one pipeline
-#define SHELL_IO_BUFFER     4096
+#define SHELL_IO_BUFFER     16384  // a 16 KiB file fits through a pipeline
 #define SHELL_PATH_MAX      256
 #define SHELL_NAME_MAX      255    // name_len of a request is 8 bits
 #define SHELL_ROOT_INODE    1u
@@ -58,6 +58,9 @@ int      shell_strcmp(const char *a, const char *b);
 
 /* Commands owned by the shell. Commands from E are declared in user/commands.h. */
 int cmd_grep(int argc, char **argv, struct ShellIO *io);
+int cmd_exec(int argc, char **argv, struct ShellIO *io);
+int cmd_ps(int argc, char **argv, struct ShellIO *io);
+int cmd_kill(int argc, char **argv, struct ShellIO *io);
 
 /* Shell internals, public so the host tests can reach them. Commands do not need these. */
 struct ShellStage {

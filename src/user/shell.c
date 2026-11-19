@@ -8,6 +8,9 @@
 
 static const struct ShellCommand commands[] = {
     { "grep", cmd_grep },
+    { "exec", cmd_exec },
+    { "ps", cmd_ps },
+    { "kill", cmd_kill },
 };
 
 static uint32_t cwd_inode = SHELL_ROOT_INODE;
