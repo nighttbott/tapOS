@@ -20,7 +20,7 @@ build() {
         nasm -f elf32 -g -F dwarf "$s" -o "$dir/obj/$(echo "$s" | tr / _).o" || return 1
     done
     # every C file of the OS except src/kernel.c (test_kernel.c has its own kernel_setup)
-    for c in $(find src -name '*.c' ! -path src/kernel.c) test/common/*.c test/qemu/*.c; do
+    for c in $(find src -name '*.c' ! -path src/kernel.c ! -path 'src/user/*') test/common/*.c test/qemu/*.c; do
         gcc $CFLAGS -DTAPOS_TEST_SUITE="$suite" -DTAPOS_TEST_NAME="\"$name\"" \
             "$c" -o "$dir/obj/$(echo "$c" | tr / _).o" || return 1
     done
