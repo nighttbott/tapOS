@@ -2,7 +2,8 @@
 #include "header/stdlib/string.h"
 
 #define GDT_TSS_INDEX       5u
-#define TSS_KERNEL_STACK_SIZE 4096u
+// Syscalls run ext2.c on this stack, and its 512-byte block buffers nest deeper than 4 KiB
+#define TSS_KERNEL_STACK_SIZE 65536u
 
 /**
  * Global Descriptor Table (GDT) definition.
