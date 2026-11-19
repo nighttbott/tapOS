@@ -33,7 +33,7 @@ call_generic_handler:
 
 interprivilege_interrupt:
     ; Interprivilege interrupt branch, get the esp from x86 interrupt stack
-    mov eax, [esp+76] 
+    mov eax, [esp+76]
     mov [esp+20], eax
 
 segment_register_setup:

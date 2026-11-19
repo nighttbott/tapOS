@@ -18,7 +18,6 @@ void kernel_setup(void) {
     paging_initialize();
     pic_remap();
     initialize_idt();
-    pit_initialize(100);
     activate_keyboard_interrupt();
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);

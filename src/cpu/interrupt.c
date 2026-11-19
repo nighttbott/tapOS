@@ -70,6 +70,10 @@ void pit_initialize(uint32_t frequency_hz) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1u << IRQ_TIMER));
 }
 
+void pit_disable(void) {
+    out(PIC1_DATA, in(PIC1_DATA) | (1u << IRQ_TIMER));
+}
+
 uint32_t pit_get_ticks(void) {
     return pit_ticks;
 }

@@ -174,6 +174,9 @@ void main_interrupt_handler(struct InterruptFrame *frame);
 /** Configure PIT channel 0 and unmask IRQ0. `frequency_hz` is clamped to 1..PIT_INPUT_HZ. */
 void pit_initialize(uint32_t frequency_hz);
 
+/** Mask IRQ0 without stopping the PIT counter. */
+void pit_disable(void);
+
 /** Number of IRQ0 ticks observed since PIT initialization. */
 uint32_t pit_get_ticks(void);
 
