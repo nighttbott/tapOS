@@ -11,6 +11,43 @@
  */
 #ifndef SYSTEM_MEMORY_MB
 #define SYSTEM_MEMORY_MB     128
+/* --- Process-related Memory Management (Book 4.1.1) --- */
+#define PAGING_DIRECTORY_TABLE_MAX_COUNT 32
+
+/**
+ * Create new page directory from a static pool of PAGING_DIRECTORY_TABLE_MAX_COUNT.
+ * The kernel half (entries 0x300 to 0x3FE) is copied from the kernel page directory, so every
+ * directory shares the same 4 KiB kernel page tables. Entry 1023 points to the new directory
+ * itself, so its page tables are reachable through the recursive window while it is active.
+ *
+ * @return Pointer to page directory virtual address. Return NULL if the pool is used up
+ */
+struct PageDirectory *paging_create_new_page_directory(void);
+/**
+ * Free a page directory made by paging_create_new_page_directory, with everything it maps
+ * below the kernel half: user frames, pages in swap and the page tables themselves.
+ * When page_dir is active, the kernel page directory is loaded first.
+ *
+ * @param page_dir Pointer to page directory virtual address
+ * @return         True if free operation success, false for a directory not from the pool
+ */
+bool paging_free_page_directory(struct PageDirectory *page_dir);
+/**
+ * Change active page directory (indirectly trigger TLB flush for all non-global entry)
+ *
+ * @note                        Assuming page directories lives in kernel memory
+ * @param page_dir_virtual_addr Page directory virtual address to switch into
+ */
+void paging_use_page_directory(struct PageDirectory *page_dir_virtual_addr);
+/**
+ * Page tables are reachable only through the recursive window of the active directory, so work
+ * on another directory switches to it for a moment. The kernel half is the same everywhere,
+ * so kernel code, data and stack keep working.
+ *
+ * @return The directory that was active, to be given back to paging_use_page_directory
+ */
+struct PageDirectory *paging_enter_page_directory(struct PageDirectory *page_dir);
+
 #endif
 
 // Number of entries in a page directory
@@ -23,12 +60,17 @@
 #define KERNEL_RESERVED_PAGE_FRAME_COUNT (0x400000u / PAGE_FRAME_SIZE)
 #define RECURSIVE_PAGE_TABLES_VIRTUAL_ADDRESS 0xFFC00000u
 #define RECURSIVE_PAGE_DIRECTORY_INDEX 1023u
+// First page directory entry of the kernel half (0xC0000000 >> 22)
+#define KERNEL_PAGE_DIRECTORY_INDEX (KERNEL_VIRTUAL_ADDRESS_BASE >> 22)
 
 // Top 128 KiB of RAM is reserved, Book 3.1.4: usable memory ends at 0x7FE0000 for 128 MiB
 #define PHYSICAL_MEMORY_TOP_HOLE 0x20000u
 
 // Maximum usable page frame. Default count: (128 MiB - 128 KiB) / 4 KiB = 32736 frames
 #define PAGE_FRAME_MAX_COUNT ((((uint32_t) SYSTEM_MEMORY_MB << 20) - PHYSICAL_MEMORY_TOP_HOLE) / PAGE_FRAME_SIZE)
+
+// Frame accounting, defined in paging.c
+extern struct PageManagerState page_manager_state;
 
 // kernel's  page directory, using 4 KiB pages
 extern struct PageDirectory _paging_kernel_page_directory;
@@ -216,5 +258,42 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
  * @return              Will return true if success, false otherwise
  */
 bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr);
+
+/* --- Process-related Memory Management (Book 4.1.1) --- */
+#define PAGING_DIRECTORY_TABLE_MAX_COUNT 32
+
+/**
+ * Create new page directory from a static pool of PAGING_DIRECTORY_TABLE_MAX_COUNT.
+ * The kernel half (entries 0x300 to 0x3FE) is copied from the kernel page directory, so every
+ * directory shares the same 4 KiB kernel page tables. Entry 1023 points to the new directory
+ * itself, so its page tables are reachable through the recursive window while it is active.
+ *
+ * @return Pointer to page directory virtual address. Return NULL if the pool is used up
+ */
+struct PageDirectory *paging_create_new_page_directory(void);
+/**
+ * Free a page directory made by paging_create_new_page_directory, with everything it maps
+ * below the kernel half: user frames, pages in swap and the page tables themselves.
+ * When page_dir is active, the kernel page directory is loaded first.
+ *
+ * @param page_dir Pointer to page directory virtual address
+ * @return         True if free operation success, false for a directory not from the pool
+ */
+bool paging_free_page_directory(struct PageDirectory *page_dir);
+/**
+ * Change active page directory (indirectly trigger TLB flush for all non-global entry)
+ *
+ * @note                        Assuming page directories lives in kernel memory
+ * @param page_dir_virtual_addr Page directory virtual address to switch into
+ */
+void paging_use_page_directory(struct PageDirectory *page_dir_virtual_addr);
+/**
+ * Page tables are reachable only through the recursive window of the active directory, so work
+ * on another directory switches to it for a moment. The kernel half is the same everywhere,
+ * so kernel code, data and stack keep working.
+ *
+ * @return The directory that was active, to be given back to paging_use_page_directory
+ */
+struct PageDirectory *paging_enter_page_directory(struct PageDirectory *page_dir);
 
 #endif

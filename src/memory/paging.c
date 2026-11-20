@@ -209,3 +209,96 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
     flush_single_tlb(virtual_addr);
     return true;
 }
+
+
+
+/* --- Process-related Memory Management --- */
+__attribute__((aligned(0x1000))) static struct PageDirectory page_directory_list[PAGING_DIRECTORY_TABLE_MAX_COUNT] = {0};
+
+static struct {
+    bool page_directory_used[PAGING_DIRECTORY_TABLE_MAX_COUNT];
+} page_directory_manager = {
+    .page_directory_used = {false},
+};
+
+void paging_use_page_directory(struct PageDirectory *page_dir_virtual_addr) {
+    uint32_t physical_addr_page_dir = (uint32_t) page_dir_virtual_addr;
+    // Additional layer of check & mistake safety net
+    if ((uint32_t) page_dir_virtual_addr > KERNEL_VIRTUAL_ADDRESS_BASE)
+        physical_addr_page_dir -= KERNEL_VIRTUAL_ADDRESS_BASE;
+    __asm__ volatile("mov %0, %%cr3" : /* <Empty> */ : "r"(physical_addr_page_dir) : "memory");
+}
+
+struct PageDirectory *paging_enter_page_directory(struct PageDirectory *page_dir) {
+    struct PageDirectory *previous = paging_get_current_page_directory_addr();
+
+    if (previous != page_dir)
+        paging_use_page_directory(page_dir);
+    return previous;
+}
+
+struct PageDirectory *paging_create_new_page_directory(void) {
+    for (uint32_t i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++) {
+        struct PageDirectory *page_dir = &page_directory_list[i];
+
+        if (page_directory_manager.page_directory_used[i])
+            continue;
+        page_directory_manager.page_directory_used[i] = true;
+        memset(page_dir, 0, sizeof(*page_dir));
+
+        // Kit asks for one 4 MiB kernel entry; tapOS keeps 4 KiB pages and shares the kernel tables
+        for (uint32_t index = KERNEL_PAGE_DIRECTORY_INDEX; index < RECURSIVE_PAGE_DIRECTORY_INDEX; index++)
+            page_dir->table[index] = _paging_kernel_page_directory.table[index];
+
+        // Pool lives in kernel .bss, inside the first 4 MiB that the kernel maps one to one
+        page_dir->table[RECURSIVE_PAGE_DIRECTORY_INDEX].flag = (struct PageDirectoryEntryFlag) {
+            .present_bit = true,
+            .write_bit   = true,
+        };
+        page_dir->table[RECURSIVE_PAGE_DIRECTORY_INDEX].page_table_base_address =
+            ((uint32_t) page_dir - KERNEL_VIRTUAL_ADDRESS_BASE) >> 12;
+        return page_dir;
+    }
+    return NULL;
+}
+
+/* Frees every user page, swap slot and page table of the active directory. */
+static void paging_release_user_space(struct PageDirectory *page_dir) {
+    for (uint32_t index = 0; index < KERNEL_PAGE_DIRECTORY_INDEX; index++) {
+        struct PageDirectoryEntry *dir_entry = &page_dir->table[index];
+        struct PageTable *page_table =
+            (struct PageTable *) (RECURSIVE_PAGE_TABLES_VIRTUAL_ADDRESS + index * PAGE_FRAME_SIZE);
+
+        if (!dir_entry->flag.present_bit)
+            continue;
+        for (uint32_t entry = 0; entry < PAGE_ENTRY_COUNT; entry++) {
+            struct PageTableEntry *page = &page_table->table[entry];
+
+            if (page->flag.present_bit)
+                paging_release_frame(page->physical_page_base_address);
+            else if (page->ignored & PTE_IGNORED_SWAPPED)
+                swap_release_slot(page->physical_page_base_address);
+        }
+        paging_release_frame(dir_entry->page_table_base_address);
+        *dir_entry = (struct PageDirectoryEntry) {0};
+    }
+}
+
+bool paging_free_page_directory(struct PageDirectory *page_dir) {
+    for (uint32_t i = 0; i < PAGING_DIRECTORY_TABLE_MAX_COUNT; i++) {
+        struct PageDirectory *previous;
+
+        if (&page_directory_list[i] != page_dir || !page_directory_manager.page_directory_used[i])
+            continue;
+
+        previous = paging_enter_page_directory(page_dir);
+        paging_release_user_space(page_dir);
+        // A directory cannot stay in CR3 once it is back in the pool
+        paging_use_page_directory(previous == page_dir ? &_paging_kernel_page_directory : previous);
+
+        memset(page_dir, 0, sizeof(*page_dir));
+        page_directory_manager.page_directory_used[i] = false;
+        return true;
+    }
+    return false;
+}
