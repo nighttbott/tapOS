@@ -856,6 +856,63 @@ static void mv_cases(void) {
     check_output("H40", "one operand", "usage: mv SOURCE... DEST\n");
 }
 
+/* Output checks that do not depend on the order of folder entries. */
+static bool has_line(const char *line) {
+    char wanted[SHELL_PATH_MAX + 2];
+    const char *at = mock_output;
+    size_t len;
+
+    snprintf(wanted, sizeof(wanted), "%s\n", line);
+    len = strlen(wanted);
+    while ((at = strstr(at, wanted)) != NULL) {
+        if (at == mock_output || at[-1] == '\n') {
+            return true;
+        }
+        at += len;
+    }
+    return false;
+}
+
+static int line_count(void) {
+    int lines = 0;
+
+    for (const char *c = mock_output; *c != '\0'; c++) {
+        lines += *c == '\n';
+    }
+    return lines;
+}
+
+static void find_cases(void) {
+    uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
+
+    write_file(child_inode(box, "moved"), "needle", "n", 1);
+    run_real("mkdir needle");
+    check("H41", "file and folder anywhere", run_real("find needle") == 0 && line_count() == 2 &&
+          has_line("/box/moved/needle") && has_line("/needle/"));
+    run_real("find deep.txt");
+    check_output("H41", "deep in the fixture", "/docs/a/b/deep.txt\n");
+    run_real("find leaf");
+    check("H41", "every copy of a name", line_count() == 4 && has_line("/t2/sub/deep/leaf") &&
+          has_line("/t2/tree/sub/deep/leaf") && has_line("/box/tree/sub/deep/leaf") &&
+          has_line("/box/moved/sub/deep/leaf"));
+    shell_cwd_set(child_inode(child_inode(1, "docs"), "a"), "/docs/a");
+    run_real("find tail");
+    check("H41", "searches from the root, not the CWD", has_line("/tail") && has_line("/box/tail"));
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("find leaf | grep box");
+    check("H41", "find through a pipe", line_count() == 2 && has_line("/box/tree/sub/deep/leaf") &&
+          has_line("/box/moved/sub/deep/leaf"));
+    run_real("find nothing");
+    check("H41", "no match prints nothing", mock_output_len == 0);
+
+    run_real("find ..");
+    check_output("H42", "dot entries are not matched", "");
+    run_real("find");
+    check_output("H42", "no argument", "usage: find NAME\n");
+    run_real("find a b");
+    check_output("H42", "two arguments", "usage: find NAME\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -878,6 +935,7 @@ int main(int argc, char **argv) {
     rm_cases();
     cp_cases();
     mv_cases();
+    find_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
