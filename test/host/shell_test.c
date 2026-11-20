@@ -547,6 +547,33 @@ static void cd_cases(void) {
     check_output("H25", "two arguments", "usage: cd [DIR]\n");
 }
 
+static void ls_cases(void) {
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+
+    check("H26", "ls a folder", run_real("ls /docs") == 0 &&
+          strcmp(mock_output, "a/\ninner\n") == 0);
+    shell_cwd_set(docs, "/docs");
+    run_real("ls");
+    check_output("H26", "ls uses the CWD", "a/\ninner\n");
+    run_real("ls a");
+    check_output("H26", "relative folder", "b/\n");
+    run_real("ls a/b");
+    check_output("H26", "nested folder", "deep.txt\n");
+    run_real("ls ..");
+    check("H26", "parent folder lists root", strstr(mock_output, "docs/\n") != NULL &&
+          strstr(mock_output, "notes\n") != NULL && strstr(mock_output, "..") == NULL);
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("ls notes");
+    check_output("H26", "file path prints itself", "notes\n");
+    run_real("ls / | grep docs");
+    check_output("H26", "ls through a pipe", "docs/\n");
+
+    check("H27", "missing path", run_real("ls nothing") != 0 &&
+          strcmp(mock_output, "ls: nothing: not found\n") == 0);
+    run_real("ls a b");
+    check_output("H27", "two arguments", "usage: ls [DIR]\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -563,6 +590,7 @@ int main(int argc, char **argv) {
     proc_cases();
     fsutil_cases();
     cd_cases();
+    ls_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
