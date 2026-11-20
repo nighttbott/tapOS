@@ -6,6 +6,7 @@
 #include "fs_test.h"
 #include "fs_cases.h"
 #include "mem_cases.h"
+#include "process_cases.h"
 #include "serial.h"
 
 #ifndef TAPOS_TEST_SUITE

@@ -44,3 +44,13 @@ Run from the repo root. `<MiB>` is the RAM size, use 5 or 6. `<suite>` is `mem_s
 ```bash
 bash tests/qemu/run_mem_tests.sh <MiB> <suite>
 ```
+
+## Milestone 4 process lifecycle
+
+```bash
+bash tests/qemu/run_mem_tests.sh 6 process_suite
+```
+
+The suite uses an isolated disk image with the legacy shell and a small ELF32
+fixture. It checks initial context, per-process mappings, create failure,
+termination, frame and swap cleanup, and reuse of a full process table.
