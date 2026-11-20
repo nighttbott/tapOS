@@ -4,6 +4,7 @@
 #include "header/cpu/interrupt.h"
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
+#include "header/memory/process_memory.h"
 #include "header/memory/swap.h"
 #include "fs_test.h"
 #include "mem_cases.h"
@@ -12,7 +13,6 @@
 #define MEM_TEST_LOAD_SIZE 0x100000u
 #define MEM_TEST_SWAP_PAGES (PAGE_FRAME_MAX_COUNT - KERNEL_RESERVED_PAGE_FRAME_COUNT + 64u)
 
-extern struct PageManagerState page_manager_state;
 
 static uint32_t page_addr(uint32_t page) {
     return MEM_TEST_BASE + page * PAGE_FRAME_SIZE;
@@ -187,4 +187,159 @@ void mem_suite_load(struct FsTestContext *ctx) {
 
     int32_t mismatch = fs_test_first_mismatch(target, MEM_TEST_LOAD_SIZE);
     fs_test_check(ctx, "L05", "loaded bytes are correct", mismatch == -1, -1, mismatch);
+}
+
+#define MEM_TEST_PROGRAM_SIZE 10000u  // file size: two full pages and a part of the third
+#define MEM_TEST_IMAGE_SIZE   0x5000u // image with .bss: five pages
+
+static uint8_t program[MEM_TEST_PROGRAM_SIZE];
+
+static struct EXT2DriverRequest program_request(char *name, uint32_t buf, uint32_t size) {
+    return (struct EXT2DriverRequest) {
+        .buf          = (void *) buf,
+        .name         = name,
+        .name_len     = (uint8_t) (name[0] == 'p' ? 4 : 7),
+        .parent_inode = 1,
+        .buffer_size  = size,
+        .is_directory = false,
+    };
+}
+
+void mem_suite_process(struct FsTestContext *ctx) {
+    pic_remap();
+    initialize_idt();
+    paging_initialize();
+    initialize_filesystem_ext2();
+
+    struct PageDirectory *kernel_dir = paging_get_current_page_directory_addr();
+    struct ProcessMemory first;
+    struct ProcessMemory second;
+    struct ProcessMemory failed;
+    char name[] = "prog";
+    char missing[] = "missing";
+
+    for (uint32_t i = 0; i < MEM_TEST_PROGRAM_SIZE; i++)
+        program[i] = fs_test_pattern(i, MEM_TEST_PROGRAM_SIZE);
+    struct EXT2DriverRequest file = program_request(name, (uint32_t) program, MEM_TEST_PROGRAM_SIZE);
+    fs_test_check(ctx, "P00", "program is written", write(&file) == 0, 0, 0);
+
+    uint32_t free_before = page_manager_state.free_page_frame_count;
+    uint32_t swap_before = swap_manager.free_count;
+
+    int32_t code = process_memory_load(&first, program_request(name, 0, MEM_TEST_IMAGE_SIZE));
+    fs_test_check(ctx, "P01", "first program loads", code == PROCESS_LOAD_SUCCESS, 0, code);
+    code = process_memory_load(&second, program_request(name, 0, MEM_TEST_IMAGE_SIZE));
+    fs_test_check(ctx, "P01", "second program loads", code == PROCESS_LOAD_SUCCESS, 0, code);
+    fs_test_check(ctx, "P01", "each has its own directory",
+                  first.page_dir != NULL && second.page_dir != NULL && first.page_dir != second.page_dir &&
+                  first.page_dir != kernel_dir, 1, 0);
+    fs_test_check(ctx, "P01", "caller directory is active again",
+                  paging_get_current_page_directory_addr() == kernel_dir, 1, 0);
+    fs_test_check(ctx, "P01", "entrypoint, stack and page counts",
+                  first.entrypoint == 0 && first.stack_top == PROCESS_STACK_TOP &&
+                  first.image_pages == 5 && first.stack_pages == PROCESS_STACK_PAGES, 1, 0);
+    uint32_t per_process = 5 + PROCESS_STACK_PAGES + 2;  // image, stack, two page tables
+    fs_test_check(ctx, "P01", "frames taken: image, stack and page tables",
+                  page_manager_state.free_page_frame_count == free_before - 2 * per_process,
+                  (int32_t) (free_before - 2 * per_process), (int32_t) page_manager_state.free_page_frame_count);
+
+    // Inside the first address space
+    paging_enter_page_directory(first.page_dir);
+    int32_t mismatch = fs_test_first_mismatch((uint8_t *) 0, MEM_TEST_PROGRAM_SIZE);
+    bool bss_zero = true;
+    for (uint32_t addr = MEM_TEST_PROGRAM_SIZE; addr < MEM_TEST_IMAGE_SIZE; addr++)
+        bss_zero = bss_zero && *(volatile uint8_t *) addr == 0;
+    volatile uint32_t *stack_word = (volatile uint32_t *) (PROCESS_STACK_TOP - 4);
+    *stack_word = 0x11111111u;
+    *(volatile uint8_t *) 0 = 0xAA;
+    paging_use_page_directory(kernel_dir);
+    fs_test_check(ctx, "P02", "image bytes are the file", mismatch == -1, -1, mismatch);
+    fs_test_check(ctx, "P02", ".bss after the file is zero", bss_zero, 1, bss_zero);
+
+    paging_enter_page_directory(second.page_dir);
+    uint8_t second_first_byte = *(volatile uint8_t *) 0;
+    uint32_t second_stack = *(volatile uint32_t *) (PROCESS_STACK_TOP - 4);
+    paging_use_page_directory(kernel_dir);
+    fs_test_check(ctx, "P03", "code page is not shared", second_first_byte == fs_test_pattern(0, MEM_TEST_PROGRAM_SIZE),
+                  fs_test_pattern(0, MEM_TEST_PROGRAM_SIZE), second_first_byte);
+    fs_test_check(ctx, "P03", "stack is not shared", second_stack == 0, 0, (int32_t) second_stack);
+
+    code = process_memory_load(&failed, program_request(missing, 0, MEM_TEST_IMAGE_SIZE));
+    fs_test_check(ctx, "P04", "missing file", code == PROCESS_LOAD_FAIL_FS_READ_FAILURE, 4, code);
+    code = process_memory_load(&failed, program_request(name, 0, 0x1000));
+    fs_test_check(ctx, "P04", "image smaller than the file", code == PROCESS_LOAD_FAIL_FS_READ_FAILURE, 4, code);
+    code = process_memory_load(&failed, program_request(name, KERNEL_VIRTUAL_ADDRESS_BASE, 0x1000));
+    fs_test_check(ctx, "P04", "entrypoint in the kernel", code == PROCESS_LOAD_FAIL_INVALID_ENTRYPOINT, 2, code);
+    code = process_memory_load(&failed, program_request(name, 0, PROCESS_IMAGE_SIZE_MAX + 1));
+    fs_test_check(ctx, "P04", "image too large", code == PROCESS_LOAD_FAIL_INVALID_ENTRYPOINT, 2, code);
+    code = process_memory_load(&failed, program_request(name, PROCESS_STACK_TOP - PROCESS_STACK_SIZE - 0x1000, 0x2000));
+    fs_test_check(ctx, "P04", "image over the stack", code == PROCESS_LOAD_FAIL_INVALID_ENTRYPOINT, 2, code);
+    fs_test_check(ctx, "P04", "failures leave nothing behind",
+                  failed.page_dir == NULL && page_manager_state.free_page_frame_count == free_before - 2 * per_process,
+                  (int32_t) (free_before - 2 * per_process), (int32_t) page_manager_state.free_page_frame_count);
+
+    // Release the second one while it is active, like exit would
+    paging_enter_page_directory(second.page_dir);
+    bool released = process_memory_release(&second);
+    fs_test_check(ctx, "P05", "release of the active directory",
+                  released && paging_get_current_page_directory_addr() == &_paging_kernel_page_directory, 1, released);
+    released = process_memory_release(&first);
+    fs_test_check(ctx, "P05", "release of an inactive directory", released, 1, released);
+    fs_test_check(ctx, "P05", "every frame is back", page_manager_state.free_page_frame_count == free_before,
+                  (int32_t) free_before, (int32_t) page_manager_state.free_page_frame_count);
+    fs_test_check(ctx, "P05", "every swap slot is back", swap_manager.free_count == swap_before,
+                  (int32_t) swap_before, (int32_t) swap_manager.free_count);
+    fs_test_check(ctx, "P05", "release twice is refused", !process_memory_release(&first), 1, 0);
+
+    struct PageDirectory *dirs[PAGING_DIRECTORY_TABLE_MAX_COUNT + 1];
+    uint32_t made = 0;
+    while (made <= PAGING_DIRECTORY_TABLE_MAX_COUNT && (dirs[made] = paging_create_new_page_directory()) != NULL)
+        made++;
+    fs_test_check(ctx, "P06", "pool holds 32 directories", made == PAGING_DIRECTORY_TABLE_MAX_COUNT,
+                  PAGING_DIRECTORY_TABLE_MAX_COUNT, (int32_t) made);
+    code = process_memory_load(&failed, program_request(name, 0, MEM_TEST_IMAGE_SIZE));
+    fs_test_check(ctx, "P06", "load with an empty pool", code == PROCESS_LOAD_FAIL_NO_PAGE_DIRECTORY, 1, code);
+    bool all_freed = true;
+    for (uint32_t i = 0; i < made; i++)
+        all_freed = paging_free_page_directory(dirs[i]) && all_freed;
+    fs_test_check(ctx, "P06", "pool can be emptied", all_freed, 1, all_freed);
+    fs_test_check(ctx, "P06", "kernel directory is not in the pool", !paging_free_page_directory(kernel_dir), 1, 0);
+    fs_test_check(ctx, "P06", "no frame leaked", page_manager_state.free_page_frame_count == free_before,
+                  (int32_t) free_before, (int32_t) page_manager_state.free_page_frame_count);
+
+    // Two 1 MiB images. On 6 MiB of RAM the second one only fits when pages of the first,
+    // inactive process go to swap; they must come back intact on access.
+    uint32_t big_pages = PROCESS_IMAGE_SIZE_MAX / PAGE_FRAME_SIZE;
+    code = process_memory_load(&first, program_request(name, 0, PROCESS_IMAGE_SIZE_MAX));
+    fs_test_check(ctx, "P07", "first 1 MiB image", code == PROCESS_LOAD_SUCCESS, 0, code);
+    paging_enter_page_directory(first.page_dir);
+    for (uint32_t page = 3; page < big_pages; page++)
+        *(volatile uint32_t *) (page * PAGE_FRAME_SIZE) = 0xB0000000u + page;
+    paging_use_page_directory(kernel_dir);
+
+    // RAM and swap together must hold both images, otherwise the loader has to refuse
+    uint32_t big_frames = big_pages + PROCESS_STACK_PAGES + 2u;
+    bool fits = 2u * big_frames <= free_before + swap_before;
+    code = process_memory_load(&second, program_request(name, 0, PROCESS_IMAGE_SIZE_MAX));
+    fs_test_check(ctx, "P07", fits ? "second 1 MiB image" : "second image refused: RAM and swap too small",
+                  code == (fits ? PROCESS_LOAD_SUCCESS : PROCESS_LOAD_FAIL_NOT_ENOUGH_MEMORY),
+                  fits ? PROCESS_LOAD_SUCCESS : PROCESS_LOAD_FAIL_NOT_ENOUGH_MEMORY, code);
+    bool needed_swap = 2u * big_frames > free_before;
+    bool used_swap = swap_manager.free_count < swap_before;
+    if (fits)
+        fs_test_check(ctx, "P07", "swap used only when RAM is too small", used_swap == needed_swap,
+                      needed_swap, used_swap);
+
+    paging_enter_page_directory(first.page_dir);
+    bool intact = fs_test_first_mismatch((uint8_t *) 0, MEM_TEST_PROGRAM_SIZE) == -1;
+    for (uint32_t page = 3; page < big_pages; page++)
+        intact = intact && *(volatile uint32_t *) (page * PAGE_FRAME_SIZE) == 0xB0000000u + page;
+    paging_use_page_directory(kernel_dir);
+    fs_test_check(ctx, "P07", "first process pages survive swap", intact, 1, intact);
+
+    bool both = process_memory_release(&first) && (!fits || process_memory_release(&second));
+    fs_test_check(ctx, "P07", "both released", both, 1, both);
+    fs_test_check(ctx, "P07", "frames and swap slots are back",
+                  page_manager_state.free_page_frame_count == free_before && swap_manager.free_count == swap_before,
+                  (int32_t) free_before, (int32_t) page_manager_state.free_page_frame_count);
 }
