@@ -11,7 +11,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
 
-// Must match the ASSERT in src/user/user-linker.ld: code, data and .bss of the shell.
+// Must match the ASSERT in src/user-linker.ld: code, data and .bss of the shell.
 #define USER_IMAGE_SIZE  0x40000u
 #define USER_STACK_PAGES 4u
 

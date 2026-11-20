@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 # Filesystem and disk tests inside the real OS (QEMU, real ATA driver).
-# Run from the repo root:  bash test/qemu/run_qemu_tests.sh
+# Run from the repo root:  bash tests/qemu/run_qemu_tests.sh
 # Every test boots its own test kernel on a COPY of a disk image.
 # bin/storage.bin and the normal Makefile build are never touched.
 set -u
 cd "$(dirname "$0")/../.."
 
+kernel_asm_sources=$(make --no-print-directory -s kernel-asm-sources) || exit 2
+kernel_c_sources=$(make --no-print-directory -s kernel-c-sources) || exit 2
+
 OUT=bin/qemu-test
 TIMEOUT=30
 CFLAGS="-fshort-wchar -g -Wall -Wextra -Werror -nostdlib -fno-stack-protector -nostartfiles \
-        -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itest/common -Itest/qemu -DFS_TEST_SKIP_FULL_DISK"
+        -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itests/common -Itests/qemu -DFS_TEST_SKIP_FULL_DISK"
 rm -rf "$OUT" && mkdir -p "$OUT"
 
 # Build a test kernel + ISO that runs one suite.  build <name> <suite function>
 build() {
     local name=$1 suite=$2 dir=$OUT/$1
     mkdir -p "$dir/obj" "$dir/iso/boot/grub"
-    for s in $(find src -name '*.s'); do
+    for s in $kernel_asm_sources; do
         nasm -f elf32 -g -F dwarf "$s" -o "$dir/obj/$(echo "$s" | tr / _).o" || return 1
     done
     # every C file of the OS except src/kernel.c (test_kernel.c has its own kernel_setup)
-    for c in $(find src -name '*.c' ! -path src/kernel.c ! -path 'src/user/*') test/common/*.c test/qemu/*.c; do
+    for c in $kernel_c_sources tests/common/*.c tests/qemu/*.c; do
+        [ "$c" = src/kernel.c ] && continue
         gcc $CFLAGS -DTAPOS_TEST_SUITE="$suite" -DTAPOS_TEST_NAME="\"$name\"" \
             "$c" -o "$dir/obj/$(echo "$c" | tr / _).o" || return 1
     done
@@ -59,7 +63,7 @@ boot() {
 blank_disk() { truncate -s 0 "$1" && truncate -s 4M "$1"; }
 
 echo "== build test kernels"
-python3 test/fixtures/make_fixture.py "$OUT/boundary.img" >/dev/null || exit 2
+python3 tests/fixtures/make_fixture.py "$OUT/boundary.img" >/dev/null || exit 2
 for pair in disk1:fs_suite_disk_write disk2:fs_suite_disk_read team:fs_suite_team_fixture \
             boundary:fs_suite_boundary delete:fs_suite_delete blank:fs_suite_blank \
             persist1:fs_suite_persist_write persist2:fs_suite_persist_read; do
@@ -72,7 +76,7 @@ boot disk1 "$OUT/disk.bin"
 boot disk2 "$OUT/disk.bin"
 
 echo "== read tests (C)"
-cp test/fixtures/sample-image.bin "$OUT/team.bin"
+cp tests/fixtures/sample-image.bin "$OUT/team.bin"
 boot team "$OUT/team.bin"
 cp "$OUT/boundary.img" "$OUT/boundary.bin"
 boot boundary "$OUT/boundary.bin"

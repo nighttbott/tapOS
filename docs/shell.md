@@ -3,15 +3,17 @@
 | File | Isi |
 | --- | --- |
 | `src/user/shell.h` | Kontrak untuk E: `ShellIO`, tipe command, API CWD, resolusi path |
-| `src/user/shell.c` | REPL, pembaca baris, parser, dispatch, pipeline, CWD, resolusi path |
-| `src/user/grep.c` | Command `grep` |
+| `src/user-shell.c` | REPL, pembaca baris, tabel command, CWD, resolusi path |
+| `src/user/shell-parser.c` | Memecah baris menjadi argumen dan tahap pipeline |
+| `src/user/shell-pipeline.c` | Dispatch dan buffer keluaran antar-tahap |
+| `src/user/command/search.c` | Command `grep` |
 | `src/user/syscall.h`, `syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
-| `test/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
-| `test/host/shell_test.c` | Test H01–H17 |
-| `test/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
-| `src/user/crt0.c`, `user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
-| `tools/inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
-| `test/qemu/run_shell_qemu.sh`, `shell_keys.py` | Test shell di QEMU dengan input keyboard |
+| `tests/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
+| `tests/host/shell_test.c` | Test H01–H17 |
+| `tests/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
+| `src/crt0.s`, `src/user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
+| `src/external/external-inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
+| `tests/qemu/run_shell_qemu.sh`, `shell_keys.py` | Test shell di QEMU dengan input keyboard |
 
 ## Alur satu perintah
 
@@ -116,7 +118,7 @@ Bila FILE diberikan, masukan dari pipeline diabaikan. Pencocokan memakai substri
 // src/user/commands.h
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
 
-// src/user/shell.c, tambahkan satu baris di tabel commands
+// src/user-shell.c, tambahkan satu baris di tabel commands
 { "cat", cmd_cat },
 ```
 
@@ -172,7 +174,7 @@ Aturan:
 
 **Status per 19 November:** nomor 7–12, `struct SyscallProcessInfo`, dan wrapper-nya sudah ada. Kernel belum menangani nomor 7–12, karena case di `syscall_dispatch` memanggil API proses (A), scheduler (C), konsol baris status (C), dan CMOS (E) yang belum dibuat. Sampai saat itu, kernel menjawab -1, dan `crt0` berputar di tempat setelah `sys_exit`.
 
-## Command proses (`src/user/proc.c`)
+## Command proses (`src/user/command/process.c`)
 
 | Command | Perilaku | Pesan |
 | --- | --- | --- |
@@ -185,7 +187,7 @@ Path yang gagal di-resolve dan PID yang tidak valid tidak pernah dikirim ke kern
 ## Menjalankan test
 
 ```bash
-bash test/host/run_shell_tests.sh
+bash tests/host/run_shell_tests.sh
 ```
 
 Test memakai `ext2.c` asli di RAM disk, jadi resolusi path dan `grep` diuji terhadap filesystem sungguhan. Yang diganti hanya batas syscall. Command uji (`fruit`, `prefix`, dan lainnya) hanya ada di `shell_test.c` dan masuk lewat parameter tabel `shell_execute_commands`.
@@ -216,7 +218,7 @@ qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=dis
 
 | Target `make` | Hasil |
 | --- | --- |
-| `user-shell` | `bin/shell`, binary flat untuk alamat 0. Objeknya di `bin/user/`, supaya tidak ikut di-link ke kernel |
+| `user-shell` | `bin/shell` untuk dimuat di alamat 0 dan `bin/shell_elf` untuk simbol GDB. Objeknya ada di `bin/user/`. |
 | `inserter` | `bin/inserter`, program laptop yang memakai `ext2.c` asli |
 | `insert-shell` | Memasukkan `bin/shell` ke root `bin/storage.bin`, menimpa versi lama |
 | `run` | Sekarang juga menjalankan `insert-shell` |
@@ -234,7 +236,7 @@ kernel_setup
  │   ├─ petakan 0x0–0x3FFFF (256 KiB) dan 4 halaman stack di bawah 0xC0000000
  │   └─ read("shell") ke alamat 0
  └─ enter_user_mode(0, 0xC0000000)
-      └─ _start (crt0.c) → main (shell.c)
+      └─ _start (crt0.s) → main (user-shell.c)
 
 int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
 ```
@@ -246,9 +248,9 @@ int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
 | `src/cpu/interrupt.c` | Case `SYSCALL_VECTOR` memanggil `syscall_dispatch` |
 | `src/cpu/gdt.c` | Stack TSS dari 4 KiB menjadi 64 KiB, karena `ext2.c` memakai buffer blok di stack |
 | `Makefile` | `syscall.c` ikut kernel; target `user-shell`, `inserter`, `insert-shell` |
-| `src/user/crt0.c` | `_start` di section `.text.entry`, lalu memanggil `main` |
-| `src/user/user-linker.ld` | Binary flat di alamat 0, dengan `ASSERT` ukuran |
-| `tools/inserter.c` | Inserter host. Ada di luar `src/` karena test QEMU meng-compile semua `src/**/*.c` ke kernel uji |
+| `src/crt0.s` | `_start` di section `.text.entry`, lalu memanggil `main` |
+| `src/user-linker.ld` | Binary flat di alamat 0, dengan `ASSERT` ukuran |
+| `src/external/external-inserter.c` | Inserter host. Hanya target `inserter` yang mengompilasinya; kernel dan kernel uji memakai daftar source kernel |
 
 Hal yang perlu diingat:
 
@@ -260,10 +262,10 @@ Hal yang perlu diingat:
 ### Test QEMU
 
 ```bash
-bash test/qemu/run_shell_qemu.sh
+bash tests/qemu/run_shell_qemu.sh
 ```
 
-Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `test/qemu/shell_keys.py` mengetik lewat monitor QEMU (`sendkey`) dan membaca layar teks dari `0xB8000` (`pmemsave`).
+Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `tests/qemu/shell_keys.py` mengetik lewat monitor QEMU (`sendkey`) dan membaca layar teks dari `0xB8000` (`pmemsave`).
 
 | ID | Kasus |
 | --- | --- |

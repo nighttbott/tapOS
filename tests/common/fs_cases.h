@@ -3,13 +3,13 @@
 
 #include "fs_test.h"
 
-// read tests on test/fixtures/sample-image.bin (C's lookup, read, read_directory)
+// read tests on tests/fixtures/sample-image.bin (C's lookup, read, read_directory)
 void fs_suite_team_fixture(struct FsTestContext *ctx);
 
-// read test on test/fixtures/boundary.img: size edges, indirect blocks, nesting, inode 112/113
+// read test on tests/fixtures/boundary.img: size edges, indirect blocks, nesting, inode 112/113
 void fs_suite_boundary(struct FsTestContext *ctx);
 
-// delete on test/fixtures/boundary.img: errors, freed space, nested folders, restart
+// delete on tests/fixtures/boundary.img: errors, freed space, nested folders, restart
 void fs_suite_delete(struct FsTestContext *ctx);
 
 // format a zeroed disk, then CRUD, restart, and fill it

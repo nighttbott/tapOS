@@ -178,7 +178,7 @@ void fs_suite_team_fixture(struct FsTestContext *ctx) {
     struct EXT2DirectoryEntry *first = (struct EXT2DirectoryEntry *) big;
     int8_t rc;
  
-    fs_test_info(ctx, "read on test/fixtures/sample-image.bin (owner C)");
+    fs_test_info(ctx, "read on tests/fixtures/sample-image.bin (owner C)");
  
     r = make_req(big, "laur", ROOT_INODE, BIG_BUFFER_SIZE, false);
     rc = read(r);
@@ -259,7 +259,7 @@ void fs_suite_boundary(struct FsTestContext *ctx) {
     uint32_t docs, a, b;
     int8_t rc;
  
-    fs_test_info(ctx, "read on test/fixtures/boundary.img (owner C)");
+    fs_test_info(ctx, "read on tests/fixtures/boundary.img (owner C)");
  
     for (uint32_t i = 0; i < sizeof(boundary_sizes) / sizeof(boundary_sizes[0]); i++) {
         name_with_number(name, "s", boundary_sizes[i]);
@@ -314,7 +314,7 @@ void fs_suite_delete(struct FsTestContext *ctx) {
     uint32_t docs, a, b, many, sum;
     int8_t rc, rc2;
 
-    fs_test_info(ctx, "delete on test/fixtures/boundary.img");
+    fs_test_info(ctx, "delete on tests/fixtures/boundary.img");
 
     // delete works on the state that initialize loads, so it must run first
     initialize_filesystem_ext2();
@@ -554,7 +554,7 @@ void fs_suite_blank(struct FsTestContext *ctx) {
     check_read_pattern(ctx, "P01", "restart, then read /w71681", "w71681", ROOT_INODE, 71681);
  
 #ifdef FS_TEST_SKIP_FULL_DISK
-    fs_test_info(ctx, "W06 skipped here (full disk is tested by test/host/run_host_tests.sh)");
+    fs_test_info(ctx, "W06 skipped here (full disk is tested by tests/host/run_host_tests.sh)");
     return;
 #endif
     fill_pattern(65536);

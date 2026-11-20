@@ -10,7 +10,7 @@
 
 /*
  * Test kernel. It replaces src/kernel.c only in test builds made by
- * test/qemu/run_qemu_tests.sh, so the normal OS is not changed.
+ * tests/qemu/run_qemu_tests.sh, so the normal OS is not changed.
  * TAPOS_TEST_SUITE picks the suite, for example -DTAPOS_TEST_SUITE=fs_suite_boundary
  */
 

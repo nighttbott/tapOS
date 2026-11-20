@@ -10,7 +10,7 @@ itself here. Checks:
   4. the bitmaps agree with what the folder tree actually uses (no leaks, no lost data)
   5. free counters in the superblock and group descriptors agree with the bitmaps
 
-Usage: python3 test/host/fsck.py <image> ...   exit code 0 = healthy
+Usage: python3 tests/host/fsck.py <image> ...   exit code 0 = healthy
 """
 import struct
 import sys

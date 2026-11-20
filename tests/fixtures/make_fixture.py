@@ -212,7 +212,7 @@ for g in range(GROUPS):
 
 struct.pack_into("<10IHBB", disk, BLOCK, GROUPS * INODES_PER_GROUP, TOTAL_BLOCKS, 0, free_blocks_total, free_inodes_total, 0, 2, BLOCKS_PER_GROUP, BLOCKS_PER_GROUP, INODES_PER_GROUP, 0xEF53, 0, 0)
 
-out = sys.argv[1] if len(sys.argv) > 1 else "test/fixtures/boundary.img"
+out = sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/boundary.img"
 with open(out, "wb") as f:
     f.write(disk)
 print("wrote %s: %d inodes used, %d blocks used" % (out, len(used_inodes), len(used_blocks)))

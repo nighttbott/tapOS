@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
-# Memory tests on low RAM. Run from the repo root:  bash test/qemu/run_mem_tests.sh [MiB] [suite]
+# Memory tests on low RAM. Run from the repo root:  bash tests/qemu/run_mem_tests.sh [MiB] [suite]
 set -u
 cd "$(dirname "$0")/../.."
+
+kernel_asm_sources=$(make --no-print-directory -s kernel-asm-sources) || exit 2
+kernel_c_sources=$(make --no-print-directory -s kernel-c-sources) || exit 2
 
 MB=${1:-6}
 SUITE=${2:-mem_suite_frames}
 OUT=bin/mem-test-$MB
 CFLAGS="-fshort-wchar -g -Wall -Wextra -Werror -nostdlib -fno-stack-protector -nostartfiles \
-        -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itest/common -Itest/qemu -DFS_TEST_SKIP_FULL_DISK \
+        -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itests/common -Itests/qemu -DFS_TEST_SKIP_FULL_DISK \
         -DSYSTEM_MEMORY_MB=$MB -DTAPOS_TEST_SUITE=$SUITE -DTAPOS_TEST_NAME=\"mem$MB\""
 rm -rf "$OUT" && mkdir -p "$OUT/obj" "$OUT/iso/boot/grub"
 
-for s in $(find src -name '*.s'); do
+for s in $kernel_asm_sources; do
     nasm -f elf32 -g -F dwarf "$s" -o "$OUT/obj/$(echo "$s" | tr / _).o" || exit 2
 done
-for c in $(find src -name '*.c' ! -path src/kernel.c ! -path 'src/user/*') test/common/*.c test/qemu/*.c; do
+for c in $kernel_c_sources tests/common/*.c tests/qemu/*.c; do
+    [ "$c" = src/kernel.c ] && continue
     gcc $CFLAGS "$c" -o "$OUT/obj/$(echo "$c" | tr / _).o" || exit 2
 done
 ld -T src/linker.ld -melf_i386 -z noexecstack "$OUT"/obj/*.o -o "$OUT/kernel" || exit 2

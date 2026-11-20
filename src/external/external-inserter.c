@@ -1,3 +1,5 @@
+#include <errno.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "header/filesystem/ext2.h"
@@ -27,11 +29,22 @@ int main(int argc, char **argv) {
     FILE *file;
     int8_t result;
 
-    if (argc != 4 || sscanf(argv[2], "%u", &parent) != 1) {
+    if (argc != 4) {
         fprintf(stderr, "usage: %s <file> <parent_inode> <storage.bin>\n", argv[0]);
         return 2;
     }
-    name = strrchr(argv[1], '/') != NULL ? strrchr(argv[1], '/') + 1 : argv[1];
+    char *end;
+    errno = 0;
+    unsigned long parsed = strtoul(argv[2], &end, 10);
+    if (argv[2][0] < '0' || argv[2][0] > '9' || *end != '\0' ||
+        errno != 0 || parsed == 0 || parsed > UINT32_MAX) {
+        fputs("inserter: invalid parent inode\n", stderr);
+        return 2;
+    }
+    parent = (uint32_t)parsed;
+
+    const char *separator = strrchr(argv[1], '/');
+    name = separator ? separator + 1 : argv[1];
     if (strlen(name) == 0 || strlen(name) > 255) {
         fprintf(stderr, "inserter: bad file name '%s'\n", name);
         return 2;
@@ -43,14 +56,31 @@ int main(int argc, char **argv) {
         return 1;
     }
     size = fread(data, 1, sizeof(data), file);
-    fclose(file);
-
-    file = fopen(argv[3], "rb+");
-    if (file == NULL || fread(image, 1, sizeof(image), file) != sizeof(image)) {
-        fprintf(stderr, "inserter: %s must be at least %u bytes (make disk)\n", argv[3], DISK_SPACE);
+    bool input_ok = fgetc(file) == EOF && !ferror(file);
+    if (fclose(file) != 0 || !input_ok) {
+        fprintf(stderr, "inserter: cannot read %s or file exceeds %u bytes\n",
+                argv[1], DISK_SPACE);
         return 1;
     }
 
+    file = fopen(argv[3], "rb+");
+    if (file == NULL || fread(image, 1, sizeof(image), file) != sizeof(image)) {
+        fprintf(stderr, "inserter: cannot read %u bytes from %s (make disk)\n",
+                DISK_SPACE, argv[3]);
+        if (file != NULL)
+            fclose(file);
+        return 1;
+    }
+
+    if (is_empty_storage()) {
+        for (size_t i = 0; i < sizeof(image); ++i) {
+            if (image[i] != 0) {
+                fprintf(stderr, "inserter: unrecognized filesystem in %s\n", argv[3]);
+                fclose(file);
+                return 1;
+            }
+        }
+    }
     initialize_filesystem_ext2();
     struct EXT2DriverRequest request = {
         .buf = data, .name = (char *) name, .name_len = (uint8_t) strlen(name),
@@ -65,13 +95,12 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    fseek(file, 0, SEEK_SET);
-    if (fwrite(image, 1, sizeof(image), file) != sizeof(image)) {
+    bool saved = fseek(file, 0, SEEK_SET) == 0 &&
+                 fwrite(image, 1, sizeof(image), file) == sizeof(image);
+    if (fclose(file) != 0 || !saved) {
         fprintf(stderr, "inserter: cannot write %s\n", argv[3]);
-        fclose(file);
         return 1;
     }
-    fclose(file);
     printf("inserted %s (%zu bytes) into inode %u of %s\n", name, size, parent, argv[3]);
     return 0;
 }

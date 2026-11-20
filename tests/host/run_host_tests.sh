@@ -1,4 +1,4 @@
-# laptop tests for the filesystem. run from the repo root:  bash test/host/run_host_tests.sh
+# laptop tests for the filesystem. run from the repo root:  bash tests/host/run_host_tests.sh
 # builds the real src/filesystem/ext2.c with a fake RAM disk, runs every suite,
 # then checks every disk image with fsck.py. Never touches bin/storage.bin.
 set -u
@@ -10,24 +10,24 @@ mkdir -p "$OUT"
 # read/write/delete are also C library names; rename ours so printf keeps working
 RENAME="-Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete"
 # alignment check is off: ext2.c reads uint32_t through the packed BlockBuffer (fine on x86, reported to the team)
-FLAGS="-std=gnu11 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize=alignment -fno-omit-frame-pointer -Isrc -Itest/common -Itest/host"
+FLAGS="-std=gnu11 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize=alignment -fno-omit-frame-pointer -Isrc -Itests/common -Itests/host"
 
 echo "== build"
 gcc $FLAGS $RENAME \
     src/filesystem/ext2.c \
-    test/common/fs_test.c test/common/fs_cases.c \
-    test/host/ram_disk.c test/host/test_main.c \
+    tests/common/fs_test.c tests/common/fs_cases.c \
+    tests/host/ram_disk.c tests/host/test_main.c \
     -o "$OUT/test_fs" || { echo "BUILD FAILED"; exit 2; }
 
 echo "== fixtures"
-python3 test/fixtures/make_fixture.py "$OUT/boundary.img" || exit 2
+python3 tests/fixtures/make_fixture.py "$OUT/boundary.img" || exit 2
 
 status=0
 run() {   # run <suite> <image|--blank> <saved image>
     echo
     "$OUT/test_fs" "$1" "$2" --save "$3" || status=1
 }
-run team     test/fixtures/sample-image.bin "$OUT/after_team.img"
+run team     tests/fixtures/sample-image.bin "$OUT/after_team.img"
 run boundary "$OUT/boundary.img"            "$OUT/after_boundary.img"
 run existing "$OUT/boundary.img"            "$OUT/after_existing.img"
 run delete   "$OUT/boundary.img"            "$OUT/after_delete.img"
@@ -38,10 +38,10 @@ echo "== health check (fsck)"
 
 # The legacy fixture is used for read-only tests.
 # Verify that reading it leaves its contents unchanged.
-cmp test/fixtures/sample-image.bin "$OUT/after_team.img" || status=1
+cmp tests/fixtures/sample-image.bin "$OUT/after_team.img" || status=1
 
 # Check all outputs derived from valid images or blank disks.
-python3 test/host/fsck.py \
+python3 tests/host/fsck.py \
     "$OUT/boundary.img" \
     "$OUT/after_boundary.img" \
     "$OUT/after_existing.img" \

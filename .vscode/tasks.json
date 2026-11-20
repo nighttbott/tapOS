@@ -20,11 +20,22 @@
             }
         },
         {
+            "type": "process",
+            "label": "Insert Shell",
+            "command": "make",
+            "args": ["insert-shell"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
             "type": "shell",
             "label": "Launch QEMU",
             "command": "echo Starting QEMU; qemu-system-i386 -m 128M -s -S -drive file=storage.bin,format=raw,if=ide,index=0,media=disk -cdrom OS2025.iso",
             "isBackground": true,
-            "dependsOn": "Build OS",
+            "dependsOn": ["Build OS", "Insert Shell"],
+            "dependsOrder": "sequence",
             "options": {
                 "cwd": "${workspaceFolder}/bin"
             },

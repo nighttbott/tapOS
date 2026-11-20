@@ -32,6 +32,10 @@
                     "description": "Get kernel symbols"
                 },
                 {
+                    "text": "add-symbol-file \"${workspaceFolder}/bin/shell_elf\" 0x0",
+                    "description": "Load shell symbols at its user virtual address"
+                },
+                {
                     "text": "set output-radix 16",
                     "description": "Use hexadecimal output"
                 }

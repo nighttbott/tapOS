@@ -62,10 +62,10 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 
 ### Milestone 3 — Shell
 
-- Pembaca baris, parser, state CWD, resolusi path, pipeline, dan `grep` di `src/user/`.
+- REPL dan CWD di `src/user-shell.c`; parser, pipeline, dan command ada di `src/user/`.
 - Shell berjalan di Ring 3: syscall `int 0x30` tersambung, TSS aktif, dan kernel memuat `/shell` ke alamat 0.
-- Build program user (`make user-shell`) dan host inserter (`make insert-shell`).
-- Logika shell diuji di laptop (`bash test/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash test/qemu/run_shell_qemu.sh`).
+- Target `make user-shell` menghasilkan `bin/shell` dan `bin/shell_elf`. Target `make insert-shell` memasukkan shell melalui inserter host di `src/external/`.
+- Logika shell diuji di laptop (`bash tests/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash tests/qemu/run_shell_qemu.sh`).
 - Cara kerja, kontrak command, dan batasannya tersedia di [docs/shell.md](docs/shell.md).
 
 Build user, loader, dan penyambungan syscall awalnya dibagikan ke anggota lain. Karena anggota tersebut tidak dapat dihubungi, bagian ini dikerjakan oleh pemegang shell.
@@ -164,7 +164,7 @@ Jalankan pengujian dari folder utama repository.
 ### Host
 
 ```bash
-bash test/host/run_host_tests.sh
+bash tests/host/run_host_tests.sh
 ```
 
 Pengujian menjalankan implementasi filesystem pada RAM disk, memeriksa konsistensi image menggunakan FSCK, dan memastikan pembacaan fixture legacy tidak mengubah isinya.
@@ -172,7 +172,7 @@ Pengujian menjalankan implementasi filesystem pada RAM disk, memeriksa konsisten
 Jika LeakSanitizer tidak didukung oleh lingkungan eksekusi:
 
 ```bash
-ASAN_OPTIONS=detect_leaks=0 bash test/host/run_host_tests.sh
+ASAN_OPTIONS=detect_leaks=0 bash tests/host/run_host_tests.sh
 ```
 
 Hasil akhir yang diharapkan:
@@ -184,7 +184,7 @@ ALL HOST TESTS PASSED
 ### QEMU
 
 ```bash
-bash test/qemu/run_qemu_tests.sh
+bash tests/qemu/run_qemu_tests.sh
 ```
 
 Pengujian mencakup disk driver ATA, pembacaan filesystem, operasi tulis/hapus, dan persistensi melalui dua kali boot.
@@ -209,7 +209,7 @@ bin/qemu-test/<suite>/qemu.log
 Setelah pengujian QEMU selesai:
 
 ```bash
-python3 test/host/fsck.py \
+python3 tests/host/fsck.py \
     bin/qemu-test/boundary.bin \
     bin/qemu-test/delete.bin \
     bin/qemu-test/blank.bin \
@@ -218,7 +218,7 @@ python3 test/host/fsck.py \
 
 Setiap image harus menghasilkan `FSCK OK`.
 
-Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. Detail pengujian tersedia di [test/README.md](test/README.md).
+Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. Detail pengujian tersedia di [tests/README.md](tests/README.md).
 
 ## Batasan Saat Ini
 

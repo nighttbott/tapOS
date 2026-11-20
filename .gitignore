@@ -1,4 +1,5 @@
 .kit/
 .vscode/
+.clangd
 *.o
 compile_flags.txt

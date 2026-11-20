@@ -1,0 +1,8 @@
+If:
+  PathMatch: tools/inserter\.c
+CompileFlags:
+  Add:
+    - "-std=gnu11"
+    - "-Dread=fs_read"
+    - "-Dwrite=fs_write"
+    - "-Ddelete=fs_delete"
