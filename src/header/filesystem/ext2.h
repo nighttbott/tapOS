@@ -314,6 +314,9 @@ int8_t read_directory(struct EXT2DriverRequest *prequest);
  */
 int8_t read(struct EXT2DriverRequest request);
 
+/* Same read operation, with the number of bytes copied on success. */
+int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out);
+
 int8_t write(struct EXT2DriverRequest *request);
 
 /**

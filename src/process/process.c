@@ -113,3 +113,23 @@ bool process_save_interrupt_context(const struct InterruptFrame *frame) {
     ctx->ss = user->ss & 0xFFFFu;
     return true;
 }
+
+bool process_reap(uint32_t pid) {
+    struct ProcessControlBlock *pcb = process_lookup(pid);
+    if (pcb == NULL || pcb->metadata.state != PROCESS_TERMINATED ||
+        !paging_free_page_directory(pcb->context.page_directory_virtual_addr))
+        return false;
+
+    pcb->context.page_directory_virtual_addr = NULL;
+    return process_release(pcb);
+}
+
+bool process_destroy(uint32_t pid) {
+    if (!process_terminate(pid, 0))
+        return false;
+
+    struct ProcessControlBlock *pcb = process_lookup(pid);
+    if (pcb->context.page_directory_virtual_addr == paging_get_current_page_directory_addr())
+        return true;
+    return process_reap(pid);
+}

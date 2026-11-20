@@ -26,7 +26,7 @@ KERNEL_ASM_SOURCES = kernel-entrypoint.s cpu/intsetup.s
 KERNEL_C_SOURCES = kernel.c cpu/gdt.c cpu/idt.c cpu/interrupt.c cpu/syscall.c \
                    cpu/portio.c driver/keyboard.c driver/disk.c filesystem/ext2.c \
                    memory/paging.c memory/swap.c text/framebuffer.c stdlib/string.c \
-                   process/process.c
+                   process/process.c process/loader.c
 KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=.o) $(KERNEL_C_SOURCES:.c=.o)))
 
 .PHONY: run all build clean kernel iso disk user-apps inserter insert-shell insert-apps \
@@ -103,8 +103,12 @@ $(addprefix user-,$(USER_PROGRAMS)): user-%:
 		$(OUTPUT_FOLDER)/user/$*/crt0.o \
 		$(addprefix $(OUTPUT_FOLDER)/user/$*/,$(notdir $(USER_COMMON:.c=.o) $(USER_SOURCES_$*:.c=.o))) \
 		-o $(OUTPUT_FOLDER)/user/$*/$*.elf
-	@$(OBJCOPY) -O binary $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/$*
-	@if [ "$*" = shell ]; then cp $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/shell_elf; fi
+	@if [ "$*" = shell ]; then \
+		$(OBJCOPY) -O binary $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/$* && \
+		cp $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/shell_elf; \
+	else \
+		$(OBJCOPY) --strip-all $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/$*; \
+	fi
 	@echo Linking user program $*...
 user-apps: $(addprefix user-,$(USER_PROGRAMS))
 shell_elf: user-shell

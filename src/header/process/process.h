@@ -59,4 +59,12 @@ bool process_terminate(uint32_t pid, int32_t exit_code);
 bool process_release(struct ProcessControlBlock *pcb);
 bool process_save_interrupt_context(const struct InterruptFrame *frame);
 
+/* Request name and PID destination must be in kernel memory. ELF entry is zero. */
+int32_t process_create_user_process(struct EXT2DriverRequest request, uint32_t *pid_out);
+int32_t process_create_init(void);
+
+/* Reap only after CR3 no longer references the terminated process. */
+bool process_reap(uint32_t pid);
+bool process_destroy(uint32_t pid);
+
 #endif

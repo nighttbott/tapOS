@@ -1520,7 +1520,7 @@ static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
     return 0;
 }
 
-int8_t read(struct EXT2DriverRequest request) {
+int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out) {
     struct EXT2ReadContext context;
     struct EXT2DirectoryEntry entry;
     struct EXT2Inode inode;
@@ -1585,7 +1585,13 @@ int8_t read(struct EXT2DriverRequest request) {
         bytes_read += bytes_to_copy;
     }
 
+    if (size_out != NULL)
+        *size_out = bytes_read;
     return 0;
+}
+
+int8_t read(struct EXT2DriverRequest request) {
+    return ext2_read_file(request, NULL);
 }
 
 int8_t write(struct EXT2DriverRequest *request) {
