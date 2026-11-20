@@ -574,6 +574,41 @@ static void ls_cases(void) {
     check_output("H27", "two arguments", "usage: ls [DIR]\n");
 }
 
+static void mkdir_cases(void) {
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+    uint32_t box;
+
+    check("H28", "mkdir in root", run_real("mkdir box") == 0 && mock_output_len == 0);
+    box = child_inode(SHELL_ROOT_INODE, "box");
+    check("H28", "folder exists and is empty", box != 0 && run_real("ls box") == 0 &&
+          mock_output_len == 0);
+    check("H28", "new folder can be entered", run_real("cd box") == 0 && shell_cwd_inode() == box);
+    run_real("mkdir inner deeper");
+    check("H28", "several relative folders", child_inode(box, "inner") != 0 &&
+          child_inode(box, "deeper") != 0);
+    run_real("cd inner");
+    run_real("cd ..");
+    check("H28", "child .. points back", shell_cwd_inode() == box);
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("mkdir /docs/a/new");
+    check("H28", "absolute nested path", child_inode(child_inode(docs, "a"), "new") != 0);
+
+    run_real("mkdir box");
+    check_output("H29", "folder exists", "mkdir: box: already exists\n");
+    run_real("mkdir notes");
+    check_output("H29", "a file has the name", "mkdir: notes: already exists\n");
+    run_real("mkdir /");
+    check_output("H29", "root", "mkdir: /: already exists\n");
+    run_real("mkdir nothing/x");
+    check_output("H29", "missing parent", "mkdir: nothing/x: no such directory\n");
+    run_real("mkdir notes/x");
+    check_output("H29", "file as parent", "mkdir: notes/x: no such directory\n");
+    check("H29", "one failure keeps going", run_real("mkdir box box2") != 0 &&
+          child_inode(SHELL_ROOT_INODE, "box2") != 0);
+    run_real("mkdir");
+    check_output("H29", "no argument", "usage: mkdir DIR...\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -591,6 +626,7 @@ int main(int argc, char **argv) {
     fsutil_cases();
     cd_cases();
     ls_cases();
+    mkdir_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }

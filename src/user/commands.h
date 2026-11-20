@@ -63,5 +63,6 @@ bool fsu_is_dot(const char *name, uint32_t len);
 /* Commands, registered in the table in user/shell.c. */
 int cmd_cd(int argc, char **argv, struct ShellIO *io);
 int cmd_ls(int argc, char **argv, struct ShellIO *io);
+int cmd_mkdir(int argc, char **argv, struct ShellIO *io);
 
 #endif

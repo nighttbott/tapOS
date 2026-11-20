@@ -67,3 +67,50 @@ int cmd_ls(int argc, char **argv, struct ShellIO *io) {
     }
     return 0;
 }
+
+/* Creates every folder named on the line; one failure does not stop the others. */
+int cmd_mkdir(int argc, char **argv, struct ShellIO *io) {
+    int status = 0;
+
+    if (argc < 2) {
+        shell_out_str(io, "usage: mkdir DIR...\n");
+        return 1;
+    }
+    for (int i = 1; i < argc; i++) {
+        char name[SHELL_NAME_MAX + 1];
+        char path[SHELL_PATH_MAX];
+        uint32_t parent;
+        struct EXT2DriverRequest request = { .buf = NULL, .name = name, .is_directory = true };
+
+        // Covers "/", ".", ".." and folders that already exist.
+        if (shell_resolve_dir(argv[i], &parent, path) == 0) {
+            fsu_error(io, "mkdir", argv[i], "already exists");
+            status = 1;
+            continue;
+        }
+        if (shell_resolve_parent(argv[i], &parent, name) != 0) {
+            fsu_error(io, "mkdir", argv[i], "no such directory");
+            status = 1;
+            continue;
+        }
+        request.name_len = (uint8_t)shell_strlen(name);
+        request.parent_inode = parent;
+        switch (sys_write_file(&request)) {
+            case 0:
+                break;
+            case 1:
+                fsu_error(io, "mkdir", argv[i], "already exists");
+                status = 1;
+                break;
+            case 2:
+                fsu_error(io, "mkdir", argv[i], "no such directory");
+                status = 1;
+                break;
+            default:
+                fsu_error(io, "mkdir", argv[i], "cannot create (disk full?)");
+                status = 1;
+                break;
+        }
+    }
+    return status;
+}
