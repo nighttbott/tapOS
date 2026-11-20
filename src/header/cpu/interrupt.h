@@ -74,8 +74,8 @@ struct CPURegister {
         uint32_t esi;
     } __attribute__((packed)) index;
     struct {
-        uint32_t esp;
         uint32_t ebp;
+        uint32_t esp;
     } __attribute__((packed)) stack;
     struct {
         uint32_t ebx;
@@ -124,6 +124,18 @@ struct InterruptFrame {
     uint32_t              int_number;
     struct InterruptStack int_stack;
 } __attribute__((packed));
+
+/* The CPU appends these words only on a privilege transition. */
+struct UserInterruptFrame {
+    struct InterruptFrame frame;
+    uint32_t esp;
+    uint32_t ss;
+} __attribute__((packed));
+
+_Static_assert(offsetof(struct CPURegister, stack.ebp) == 8, "PUSHAD EBP offset");
+_Static_assert(offsetof(struct CPURegister, stack.esp) == 12, "PUSHAD ESP offset");
+_Static_assert(offsetof(struct UserInterruptFrame, esp) == 68, "Ring 3 ESP offset");
+_Static_assert(offsetof(struct UserInterruptFrame, ss) == 72, "Ring 3 SS offset");
 
 // Activate PIC mask for keyboard only
 void activate_keyboard_interrupt(void);

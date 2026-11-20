@@ -25,7 +25,8 @@ LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 KERNEL_ASM_SOURCES = kernel-entrypoint.s cpu/intsetup.s
 KERNEL_C_SOURCES = kernel.c cpu/gdt.c cpu/idt.c cpu/interrupt.c cpu/syscall.c \
                    cpu/portio.c driver/keyboard.c driver/disk.c filesystem/ext2.c \
-                   memory/paging.c memory/swap.c text/framebuffer.c stdlib/string.c
+                   memory/paging.c memory/swap.c text/framebuffer.c stdlib/string.c \
+                   process/process.c
 KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=.o) $(KERNEL_C_SOURCES:.c=.o)))
 
 .PHONY: run all build clean kernel iso disk user-apps inserter insert-shell insert-apps \
