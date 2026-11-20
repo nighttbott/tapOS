@@ -2,9 +2,8 @@
 #include "user/shell.h"
 #include "user/syscall.h"
 
-#define PS_MAX 16  // PROCESS_COUNT_MAX
+#define PS_MAX 16
 
-/* Decimal digits of value into out (10 bytes, no '\0'); returns how many. */
 static uint32_t format_uint(char *out, uint32_t value) {
     uint32_t len = 0;
 
@@ -17,7 +16,6 @@ static uint32_t format_uint(char *out, uint32_t value) {
     return len;
 }
 
-/* Writes text, then spaces up to width; text is never cut. */
 static void out_padded(struct ShellIO *io, const char *text, uint32_t len, uint32_t width) {
     shell_out(io, text, len);
     for (; len < width; len++) {
@@ -25,7 +23,6 @@ static void out_padded(struct ShellIO *io, const char *text, uint32_t len, uint3
     }
 }
 
-/* Decimal only. Returns false for an empty string, other characters or overflow. */
 static bool parse_uint(const char *text, uint32_t *value) {
     *value = 0;
     if (*text == '\0') {

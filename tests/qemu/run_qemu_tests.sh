@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Filesystem and disk tests inside the real OS (QEMU, real ATA driver).
-# Run from the repo root:  bash tests/qemu/run_qemu_tests.sh
-# Every test boots its own test kernel on a COPY of a disk image.
-# bin/storage.bin and the normal Makefile build are never touched.
 set -u
 cd "$(dirname "$0")/../.."
 
@@ -15,14 +11,12 @@ CFLAGS="-fshort-wchar -g -Wall -Wextra -Werror -nostdlib -fno-stack-protector -n
         -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itests/common -Itests/qemu -DFS_TEST_SKIP_FULL_DISK"
 rm -rf "$OUT" && mkdir -p "$OUT"
 
-# Build a test kernel + ISO that runs one suite.  build <name> <suite function>
 build() {
     local name=$1 suite=$2 dir=$OUT/$1
     mkdir -p "$dir/obj" "$dir/iso/boot/grub"
     for s in $kernel_asm_sources; do
         nasm -f elf32 -g -F dwarf "$s" -o "$dir/obj/$(echo "$s" | tr / _).o" || return 1
     done
-    # every C file of the OS except src/kernel.c (test_kernel.c has its own kernel_setup)
     for c in $kernel_c_sources tests/common/*.c tests/qemu/*.c; do
         [ "$c" = src/kernel.c ] && continue
         gcc $CFLAGS -DTAPOS_TEST_SUITE="$suite" -DTAPOS_TEST_NAME="\"$name\"" \
@@ -35,7 +29,6 @@ build() {
         -input-charset utf8 -quiet -boot-info-table -o "$dir/test.iso" "$dir/iso" || return 1
 }
 
-# Boot a test kernel with a disk image and wait for its result.  boot <name> <disk image> [seconds]
 status=0
 boot() {
     local name=$1 disk=$2 limit=${3:-$TIMEOUT} log=$OUT/$1/serial.log

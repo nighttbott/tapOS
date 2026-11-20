@@ -1,4 +1,3 @@
-/* Based on .kit/ch4/linker.ld. The kernel loads the flat image at address 0. */
 ENTRY(_start)
 
 PHDRS
@@ -30,7 +29,6 @@ SECTIONS
     } :data
 
     ASSERT(_start == 0, "user entry must start at address zero")
-    /* Keep this limit in sync with USER_IMAGE_SIZE in src/kernel.c. */
     ASSERT(. <= 0x40000, "user program is larger than USER_IMAGE_SIZE")
 
     /DISCARD/ :

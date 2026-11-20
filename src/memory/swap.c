@@ -32,14 +32,13 @@ bool swap_out(struct PageDirectory *page_dir, void *virtual_addr) {
 
     struct PageTableEntry *entry = paging_get_page_table_entry(page_dir, virtual_addr);
     if (entry == NULL || !entry->flag.present_bit || !entry->flag.us_bit ||
-        swap_manager.free_count == 0)
+        (entry->ignored & PTE_IGNORED_PINNED) || swap_manager.free_count == 0)
         return false;
 
     uint32_t slot = 0;
     while (swap_manager.swap_used[slot])
         slot++;
 
-    // Keep the page mapped until its data is on disk
     write_blocks(virtual_addr, swap_slot_to_block(slot), SWAP_BLOCKS_PER_PAGE);
     swap_manager.swap_used[slot] = true;
     swap_manager.free_count--;
@@ -63,7 +62,6 @@ bool swap_in(struct PageDirectory *page_dir, void *virtual_addr) {
     if (slot >= PAGE_FRAME_ON_SWAP_MAX_COUNT || !swap_manager.swap_used[slot])
         return false;
 
-    // Read first so a victim can reuse the slot even when swap is full.
     read_blocks(incoming_page, swap_slot_to_block(slot), SWAP_BLOCKS_PER_PAGE);
     swap_release_slot(slot);
     uint32_t page_frame_number = paging_acquire_frame();
@@ -85,7 +83,6 @@ bool swap_in(struct PageDirectory *page_dir, void *virtual_addr) {
 }
 
 bool swap_replace_page(void) {
-    // Clock algorithm: two rounds, the first one may only clear accessed bits
     for (uint32_t step = 0; step < 2u * PAGE_FRAME_MAX_COUNT; step++) {
         uint32_t page_frame_number = clock_hand;
         const struct FrameOwner *owner = paging_get_frame_owner(page_frame_number);
@@ -97,7 +94,7 @@ bool swap_replace_page(void) {
             continue;
 
         struct PageTableEntry *entry = paging_get_page_table_entry(owner->page_dir, owner->virtual_addr);
-        if (entry == NULL)
+        if (entry == NULL || (entry->ignored & PTE_IGNORED_PINNED))
             continue;
         if (entry->flag.accessed_bit) {
             entry->flag.accessed_bit = false;
@@ -114,7 +111,6 @@ bool handle_page_fault(uint32_t error_code) {
     void *page_addr = (void *) (fault_address & ~(PAGE_FRAME_SIZE - 1));
     struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
 
-    // Protection violation or kernel address: running the instruction again would not help
     if ((error_code & PAGE_FAULT_PRESENT) || fault_address >= KERNEL_VIRTUAL_ADDRESS_BASE)
         return false;
 

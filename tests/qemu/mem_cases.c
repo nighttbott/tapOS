@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "header/cpu/idt.h"
+#include "header/cpu/syscall.h"
 #include "header/cpu/interrupt.h"
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
@@ -18,13 +19,12 @@ static uint32_t page_addr(uint32_t page) {
     return MEM_TEST_BASE + page * PAGE_FRAME_SIZE;
 }
 
-// Allocate until RAM is full, free everything, then do it again
 void mem_suite_frames(struct FsTestContext *ctx) {
     paging_initialize();
 
     struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
     uint32_t free_frames_before = page_manager_state.free_page_frame_count;
-    uint32_t pages = free_frames_before - 1u; // one frame goes to the page table
+    uint32_t pages = free_frames_before - 1u;
 
     fs_test_check(ctx, "M01", "check accepts free memory", paging_allocate_check(free_frames_before * PAGE_FRAME_SIZE), 1, 1);
     fs_test_check(ctx, "M02", "check rejects too much memory", !paging_allocate_check((free_frames_before + 1u) * PAGE_FRAME_SIZE), 1, 1);
@@ -64,7 +64,6 @@ void mem_suite_frames(struct FsTestContext *ctx) {
     fs_test_check(ctx, "M09", "freeing twice is refused", !paging_free_user_page_frame(page_dir, (void *) page_addr(0)), 1, 1);
 }
 
-// Touch pages that were never allocated, the page fault handler has to map them
 void mem_suite_fault(struct FsTestContext *ctx) {
     pic_remap();
     initialize_idt();
@@ -80,7 +79,6 @@ void mem_suite_fault(struct FsTestContext *ctx) {
     *write_page = 0x12345678u;
     fs_test_check(ctx, "F02", "first write is kept", *write_page == 0x12345678u, 0x12345678, (int32_t) *write_page);
 
-    // Two pages and their page table
     fs_test_check(ctx, "F03", "each fault takes one frame", page_manager_state.free_page_frame_count == free_frames_before - 3u,
                   (int32_t) free_frames_before - 3, (int32_t) page_manager_state.free_page_frame_count);
 
@@ -93,7 +91,6 @@ static uint32_t swap_pattern(uint32_t page, uint32_t offset) {
     return (page * 2654435761u) ^ (offset * 40503u) ^ 0x5A5AA5A5u;
 }
 
-// More pages than RAM can hold: every extra page has to go through swap
 void mem_suite_swap(struct FsTestContext *ctx) {
     pic_remap();
     initialize_idt();
@@ -136,7 +133,6 @@ void mem_suite_swap(struct FsTestContext *ctx) {
     fs_test_check(ctx, "S06", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before,
                   (int32_t) free_frames_before, (int32_t) page_manager_state.free_page_frame_count);
 
-    // RAM and swap both full: allocation has to fail, not overwrite a slot
     uint32_t capacity = free_frames_before - 1u + PAGE_FRAME_ON_SWAP_MAX_COUNT;
     uint32_t allocated = 0;
     while (paging_allocate_user_page_frame(page_dir, (void *) page_addr(allocated))) {
@@ -153,6 +149,23 @@ void mem_suite_swap(struct FsTestContext *ctx) {
     fs_test_check(ctx, "S09", "pages can be restored with both RAM and swap full",
                   full_swap_read, 1, full_swap_read);
 
+    uint32_t first = page_addr(0);
+    struct PageTableEntry *a = paging_get_page_table_entry(page_dir, (void *)first);
+    for (uint32_t page = 1; a->flag.present_bit && page < allocated; page++) {
+        first = page_addr(page);
+        a = paging_get_page_table_entry(page_dir, (void *)first);
+    }
+    bool starts_swapped = !a->flag.present_bit;
+    struct InterruptFrame frame = {0};
+    frame.cpu.general.eax = SYSCALL_READ_CHAR;
+    frame.cpu.general.ebx = first;
+    frame.cpu.general.ecx = 1;
+    syscall_dispatch(&frame);
+    fs_test_check(ctx, "S10", "syscall restores swapped buffer with RAM and swap full",
+                  starts_swapped && frame.cpu.general.eax == 0 && a->flag.present_bit &&
+                  *(volatile uint8_t *)first == 0 &&
+                  !(a->ignored & PTE_IGNORED_PINNED), 1, frame.cpu.general.eax);
+
     freed = true;
     for (uint32_t page = 0; page < allocated; page++)
         freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
@@ -160,7 +173,6 @@ void mem_suite_swap(struct FsTestContext *ctx) {
                   PAGE_FRAME_ON_SWAP_MAX_COUNT, (int32_t) swap_manager.free_count);
 }
 
-// Load a file to address 0 like the kernel loads the shell, it does not fit in low RAM
 void mem_suite_load(struct FsTestContext *ctx) {
     pic_remap();
     initialize_idt();

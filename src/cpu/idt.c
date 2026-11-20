@@ -9,7 +9,6 @@ void initialize_idt(void) {
     for(int i = 0; i < ISR_STUB_TABLE_LIMIT; i++){
         set_interrupt_gate(i, isr_stub_table[i], GDT_KERNEL_CODE_SEGMENT_SELECTOR, 0);
     }
-    // DPL 3 so Ring 3 may run int 0x30; with DPL 0 it raises #GP
     set_interrupt_gate(SYSCALL_VECTOR, isr_stub_table[SYSCALL_VECTOR], GDT_KERNEL_CODE_SEGMENT_SELECTOR, 3);
     uintptr_t interrupt_descriptor_table_address = (uintptr_t) &interrupt_descriptor_table;
     _idt_idtr.size = sizeof(interrupt_descriptor_table) - 1;
@@ -27,7 +26,6 @@ void set_interrupt_gate(
     struct IDTGate *idt_int_gate = &interrupt_descriptor_table.table[int_vector];
     uintptr_t handler_address_uint = (uintptr_t) handler_address;
 
-    // Target system 32-bit and flag this as valid interrupt gate
     idt_int_gate->offset_low  = handler_address_uint & 0xFFFF;
     idt_int_gate->segment     = gdt_seg_selector;
     idt_int_gate->_r_bit_1    = INTERRUPT_GATE_R_BIT_1;

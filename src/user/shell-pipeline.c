@@ -47,7 +47,6 @@ int shell_execute_commands(char *line, const struct ShellCommand *table, uint32_
         return -1;
     }
 
-    // Look everything up first: "rm a | typo" must not delete a.
     for (uint32_t i = 0; i < pipeline.count; i++) {
         stages[i] = find_command(table, count, pipeline.stages[i].argv[0]);
         if (stages[i] == NULL) {

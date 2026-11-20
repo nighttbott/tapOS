@@ -14,7 +14,6 @@ const uint8_t fs_signature[BLOCK_SIZE] = {
     [BLOCK_SIZE-1] = 'k',
 };
 
-/* Cached filesystem metadata used after initialization. */
 static struct EXT2Superblock superblock;
 static struct EXT2BlockGroupDescriptorTable bgd_table;
 
@@ -25,7 +24,6 @@ static struct EXT2BlockGroupDescriptorTable bgd_table;
 #define EXT2_METADATA_BLOCKS_PER_GROUP \
     (2u + INODES_TABLE_BLOCK_COUNT)
 #define EXT2_TOTAL_BLOCKS (DISK_SPACE / BLOCK_SIZE)
-/* Data starts after the signature, superblock, BGD, and group metadata. */
 #define EXT2_FIRST_DATA_BLOCK \
     (EXT2_FIRST_METADATA_BLOCK + \
      GROUPS_COUNT * EXT2_METADATA_BLOCKS_PER_GROUP)
@@ -49,7 +47,6 @@ static void ext2_set_bitmap_bit(struct BlockBuffer *bitmap,
 }
 
 uint32_t inode_to_bgd(uint32_t inode) {
-    /* Inode numbering starts from 1, while array indexes start from 0. */
     return (inode - 1u) / INODES_PER_GROUP;
 }
 
@@ -112,7 +109,6 @@ void init_directory_table(struct EXT2Inode *node, uint32_t inode,
     offset += entry.rec_len;
 
     memset(&entry, 0, sizeof(entry));
-    /* The unused record fills the rest of the block for future children. */
     entry.rec_len = (uint16_t)(BLOCK_SIZE - offset);
     memcpy(directory_block.buf + offset, &entry, sizeof(entry));
 
@@ -156,7 +152,6 @@ void create_ext2(void) {
         uint32_t group_end = group_start + BLOCKS_PER_GROUP;
         uint32_t group_used_blocks = 0;
 
-        /* Each group owns one block bitmap, one inode bitmap, and an inode table. */
         descriptor->bg_block_bitmap = metadata_start;
         descriptor->bg_inode_bitmap = metadata_start + 1u;
         descriptor->bg_inode_table = metadata_start + 2u;
@@ -173,14 +168,12 @@ void create_ext2(void) {
     bgd_table.table[0].bg_free_inodes_count--;
     bgd_table.table[0].bg_used_dirs_count = 1;
 
-    /* Initialize allocation bitmaps and inode tables for every group. */
     for (uint32_t group = 0; group < GROUPS_COUNT; group++) {
         const struct EXT2BlockGroupDescriptor *descriptor =
             &bgd_table.table[group];
         uint32_t group_start = group * BLOCKS_PER_GROUP;
 
         memset(&block, 0, sizeof(block));
-        /* A block bitmap bit represents an offset inside its block group. */
         for (uint32_t absolute_block = group_start;
              absolute_block < used_blocks &&
              absolute_block < group_start + BLOCKS_PER_GROUP;
@@ -216,7 +209,6 @@ void create_ext2(void) {
     memcpy(block.buf, &bgd_table, sizeof(bgd_table));
     write_blocks(&block, EXT2_BGD_TABLE_BLOCK, 1);
 
-    /* Write the signature last so an interrupted format is retried. */
     write_blocks(fs_signature, BOOT_SECTOR, 1);
 }
 
@@ -385,12 +377,18 @@ static bool ext2_get_data_block(const struct EXT2ReadContext *context,
     return true;
 }
 
-static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
+struct EXT2EntryLocation {
+    uint32_t block;
+    uint16_t offset;
+};
+
+static int8_t ext2_find_entry_at(const struct EXT2ReadContext *context,
                               uint32_t parent_inode,
                               const char *name,
                               uint8_t name_len,
                               uint8_t wanted_file_type,
-                              struct EXT2DirectoryEntry *entry_out) {
+                              struct EXT2DirectoryEntry *entry_out,
+                              struct EXT2EntryLocation *location) {
     struct EXT2Inode parent;
     struct BlockBuffer directory_block;
     uint32_t directory_blocks;
@@ -470,6 +468,10 @@ static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
                 if (wanted_file_type == EXT2_FT_UNKNOWN ||
                     entry.file_type == wanted_file_type) {
                     *entry_out = entry;
+                    if (location != NULL) {
+                        location->block = disk_block;
+                        location->offset = offset;
+                    }
                     return 0;
                 }
             }
@@ -479,6 +481,12 @@ static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
     }
 
     return name_exists ? 3 : 1;
+}
+
+static int8_t ext2_find_entry(const struct EXT2ReadContext *context,
+                              uint32_t parent, const char *name, uint8_t length,
+                              uint8_t type, struct EXT2DirectoryEntry *entry) {
+    return ext2_find_entry_at(context, parent, name, length, type, entry, NULL);
 }
 
 static bool ext2_read_cached_inode(uint32_t inode_number,
@@ -587,19 +595,10 @@ static bool ext2_release_block(uint32_t block_number) {
     return ext2_release_physical_block(block_number, &bitmap, &last_bgd);
 }
 
-/**
- * @brief Find and reserve the first free block in ascending disk order.
- * The block bitmap and both free-block counters are updated in memory.
- * The caller must persist the counters using ext2_sync_metadata().
- */
 static bool ext2_allocate_physical_block(uint32_t preferred_bgd,
                                          uint32_t *block_out) {
     uint32_t blocks_per_group = superblock.s_blocks_per_group;
 
-    /*
-     * Preserve the parameter for compatibility with existing callers.
-     * Block allocation follows global First Fit order.
-     */
     (void)preferred_bgd;
 
     if (block_out == NULL || blocks_per_group == 0 ||
@@ -680,12 +679,6 @@ static bool ext2_ensure_pointer_block(uint32_t *pointer,
     return true;
 }
 
-/**
- * @brief Store data_block at the requested logical position.
- * Missing indirect pointer blocks are allocated and reported through
- * new_pointer_blocks. On failure all newly created pointer blocks are
- * released, so the inode is left unchanged.
- */
 static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
                                         uint32_t logical_block,
                                         uint32_t data_block,
@@ -706,7 +699,6 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
 
     if (logical_block < EXT2_DOUBLE_INDIRECT_START) {
         uint32_t created = 0;
-        /* local copy: i_block lives in a packed struct, so no pointer into it */
         uint32_t single_pointer = node->i_block[12];
 
         if (!ext2_ensure_pointer_block(&single_pointer, preferred_bgd,
@@ -772,12 +764,6 @@ static bool ext2_set_data_block_pointer(struct EXT2Inode *node,
     return true;
 }
 
-/**
- * @brief Undo a partially built inode block map created by
- * ext2_allocate_node_blocks_checked().
- * @param node freshly zeroed inode that owns the blocks
- * @param data_blocks number of data blocks successfully linked
- */
 static void ext2_rollback_node_blocks(struct EXT2Inode *node,
                                       uint32_t data_blocks) {
     if (node == NULL) {
@@ -786,7 +772,6 @@ static void ext2_rollback_node_blocks(struct EXT2Inode *node,
 
     deallocate_blocks(node->i_block, data_blocks);
 
-    /* Pointer block may exist before the first indirect data block. */
     if (node->i_block[12] != 0 &&
         data_blocks <= EXT2_DIRECT_BLOCK_COUNT) {
         ext2_release_block(node->i_block[12]);
@@ -815,11 +800,6 @@ static void ext2_rollback_node_blocks(struct EXT2Inode *node,
     ext2_sync_metadata();
 }
 
-/**
- * @brief Allocate and write every data block of a new inode.
- * Supports direct, single indirect, and double indirect blocks.
- * @return false after rolling back all blocks allocated by this call
- */
 static bool ext2_allocate_node_blocks_checked(void *ptr,
                                               struct EXT2Inode *node,
                                               uint32_t preferred_bgd) {
@@ -1011,7 +991,6 @@ void deallocate_node(uint32_t inode_number) {
     uint8_t mask;
     bool is_directory;
 
-    /* Inode 1 is the root directory and must never be released. */
     if (inode_number <= EXT2_ROOT_INODE ||
         inode_number > superblock.s_inodes_count ||
         !ext2_read_cached_inode(inode_number, &inode)) {
@@ -1191,11 +1170,6 @@ int8_t delete(struct EXT2DriverRequest request) {
         return -1;
     }
 
-    /*
-     * File and directory entries may share a name.  Select the requested
-     * type during lookup instead of unlinking whichever matching entry was
-     * encountered first in the directory table.
-     */
     result = ext2_find_entry(
         &context, request.parent_inode, request.name, request.name_len,
         request.is_directory ? EXT2_FT_DIR : EXT2_FT_REG_FILE, &entry);
@@ -1203,7 +1177,6 @@ int8_t delete(struct EXT2DriverRequest request) {
         return 1;
     }
     if (result == 3) {
-        /* A same-named entry of the other type is not this delete target. */
         return 1;
     }
     if (result == 2) {
@@ -1435,10 +1408,6 @@ static void ext2_fill_directory_entry(void *destination, uint16_t rec_len,
     memcpy((uint8_t *)destination + sizeof(entry), name, name_len);
 }
 
-/**
- * @brief Append a child entry to a directory, growing it when needed.
- * @return 0 on success, -1 on failure (no directory change is left behind)
- */
 static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
                                        uint32_t child_inode,
                                        const char *name, uint8_t name_len,
@@ -1507,7 +1476,6 @@ static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
 
                 entry.rec_len = actual_length;
                 memcpy(block.buf + offset, &entry, sizeof(entry));
-                /* The new record owns the remainder of the old record. */
                 ext2_fill_directory_entry(
                     block.buf + offset + actual_length,
                     (uint16_t)(old_record_length - actual_length),
@@ -1520,7 +1488,6 @@ static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
         }
     }
 
-    /* No free record in the existing blocks: append one new directory block. */
     {
         uint32_t logical_block = parent_blocks;
         uint32_t block_number;
@@ -1647,10 +1614,6 @@ int8_t write(struct EXT2DriverRequest *request) {
  context.superblock = superblock;
     context.bgd_table = bgd_table;
 
-    /*
-     * Names must be unique within the parent directory,
-     * regardless of whether the entry is a file or directory.
-     */
     result = ext2_find_entry(
         &context,
         request->parent_inode,
@@ -1661,17 +1624,14 @@ int8_t write(struct EXT2DriverRequest *request) {
     );
 
     if (result == 0) {
-        /* The name is already in use. */
         return 1;
     }
 
     if (result == 2) {
-        /* The parent is not a valid directory. */
         return 2;
     }
 
     if (result != 1) {
-        /* An unexpected lookup error occurred. */
         return -1;
     }
 
@@ -1692,7 +1652,6 @@ int8_t write(struct EXT2DriverRequest *request) {
             deallocate_node(inode_number);
             return -1;
         }
-        /* Persist the directory mode first so rollback updates used_dirs_count. */
         sync_node(&node, inode_number);
         bgd_table.table[group].bg_used_dirs_count++;
         ext2_sync_metadata();
@@ -1727,5 +1686,149 @@ int8_t write(struct EXT2DriverRequest *request) {
         return -1;
     }
 
+    return 0;
+}
+
+int8_t ext2_read_directory_block(uint32_t inode, uint32_t index, void *buffer) {
+    struct EXT2ReadContext context;
+    struct EXT2Inode directory;
+    uint32_t disk_block;
+
+    if (!ext2_read_context_init(&context) ||
+        !ext2_read_inode(&context, inode, &directory) ||
+        (directory.i_mode & 0xF000u) != EXT2_S_IFDIR ||
+        directory.i_size == 0 || directory.i_size > DISK_SPACE ||
+        directory.i_size % BLOCK_SIZE != 0)
+        return -1;
+    if (index >= directory.i_size / BLOCK_SIZE)
+        return 0;
+    if (!ext2_get_data_block(&context, &directory, index, &disk_block))
+        return -1;
+    struct BlockBuffer block;
+    read_blocks(&block, disk_block, 1);
+    memcpy(buffer, block.buf, BLOCK_SIZE);
+    return 1;
+}
+
+static bool ext2_move_name_valid(const char *name, uint8_t length) {
+    return ext2_valid_name(name, length) &&
+           !(length == 1 && name[0] == '.') &&
+           !(length == 2 && name[0] == '.' && name[1] == '.');
+}
+
+static bool ext2_dotdot(const struct EXT2ReadContext *context, uint32_t inode,
+                        struct EXT2EntryLocation *location, uint32_t *parent) {
+    struct EXT2DirectoryEntry dot;
+    struct EXT2DirectoryEntry dotdot;
+    struct EXT2Inode directory;
+    struct BlockBuffer block;
+
+    if (!ext2_read_inode(context, inode, &directory) ||
+        (directory.i_mode & 0xF000u) != EXT2_S_IFDIR ||
+        !ext2_get_data_block(context, &directory, 0, &location->block))
+        return false;
+    read_blocks(&block, location->block, 1);
+    uint32_t offset = get_dir_first_child_offset(block.buf);
+    memcpy(&dot, block.buf, sizeof(dot));
+    if (offset > BLOCK_SIZE || dot.inode != inode || dot.name_len != 1 ||
+        dot.rec_len < get_entry_record_len(1) ||
+        dot.rec_len > BLOCK_SIZE - get_entry_record_len(2) ||
+        block.buf[sizeof(dot)] != '.')
+        return false;
+    memcpy(&dotdot, block.buf + dot.rec_len, sizeof(dotdot));
+    if (dotdot.name_len != 2 || dotdot.rec_len < get_entry_record_len(2) ||
+        offset != dot.rec_len + dotdot.rec_len ||
+        memcmp(block.buf + dot.rec_len + sizeof(dotdot), "..", 2) != 0 ||
+        dotdot.inode == 0 || dotdot.inode > context->superblock.s_inodes_count)
+        return false;
+    location->offset = dot.rec_len;
+    *parent = dotdot.inode;
+    return true;
+}
+
+static void ext2_set_entry_inode(struct EXT2EntryLocation location, uint32_t inode) {
+    struct BlockBuffer block;
+
+    read_blocks(&block, location.block, 1);
+    memcpy(block.buf + location.offset, &inode, sizeof(inode));
+    write_blocks(&block, location.block, 1);
+}
+
+int8_t ext2_move(const struct EXT2MoveRequest *request) {
+    struct EXT2ReadContext context;
+    struct EXT2DirectoryEntry source, destination;
+    struct EXT2EntryLocation source_location, destination_location, dotdot;
+    bool same_parent = request->source_parent == request->destination_parent;
+
+    if (!ext2_move_name_valid(request->source_name, request->source_length) ||
+        !ext2_move_name_valid(request->destination_name, request->destination_length) ||
+        !ext2_read_context_init(&context))
+        return -1;
+    if (ext2_find_entry_at(&context, request->source_parent, request->source_name,
+                           request->source_length, EXT2_FT_UNKNOWN,
+                           &source, &source_location) != 0 ||
+        source.inode == EXT2_ROOT_INODE ||
+        (source.file_type != EXT2_FT_DIR && source.file_type != EXT2_FT_REG_FILE))
+        return -1;
+
+    int8_t result = ext2_find_entry_at(&context, request->destination_parent,
+                                      request->destination_name, request->destination_length,
+                                      EXT2_FT_UNKNOWN, &destination, &destination_location);
+    if (result != 0 && result != 1)
+        return -1;
+    if (result == 0 && (destination.inode == source.inode ||
+                        source.file_type != EXT2_FT_REG_FILE ||
+                        destination.file_type != EXT2_FT_REG_FILE))
+        return 1;
+    if (result == 0) {
+        struct EXT2Inode target;
+        if (!ext2_read_inode(&context, destination.inode, &target) ||
+            (target.i_mode & 0xF000u) != EXT2_S_IFREG)
+            return -1;
+    }
+
+    bool update_parent = source.file_type == EXT2_FT_DIR && !same_parent;
+    if (update_parent) {
+        struct EXT2EntryLocation ancestor_location;
+        uint32_t parent;
+        uint32_t ancestor = request->destination_parent;
+        uint32_t steps = 0;
+
+        if (!ext2_dotdot(&context, source.inode, &dotdot, &parent) ||
+            parent != request->source_parent)
+            return -1;
+        while (ancestor != EXT2_ROOT_INODE) {
+            if (ancestor == source.inode)
+                return 1;
+            if (++steps > context.superblock.s_inodes_count ||
+                !ext2_dotdot(&context, ancestor, &ancestor_location, &ancestor))
+                return -1;
+        }
+    }
+
+    if (result == 1 && same_parent &&
+        source.rec_len >= get_entry_record_len(request->destination_length)) {
+        struct BlockBuffer block;
+        read_blocks(&block, source_location.block, 1);
+        ext2_fill_directory_entry(block.buf + source_location.offset, source.rec_len,
+                                  source.inode, request->destination_name,
+                                  request->destination_length, source.file_type);
+        write_blocks(&block, source_location.block, 1);
+        return 0;
+    }
+
+    if (result == 0) {
+        ext2_set_entry_inode(destination_location, source.inode);
+    } else if (ext2_add_directory_entry(request->destination_parent, source.inode,
+                                        request->destination_name, request->destination_length,
+                                        source.file_type) != 0) {
+        return -1;
+    }
+
+    ext2_set_entry_inode(source_location, 0);
+    if (update_parent)
+        ext2_set_entry_inode(dotdot, request->destination_parent);
+    if (result == 0)
+        deallocate_node(destination.inode);
     return 0;
 }

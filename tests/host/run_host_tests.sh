@@ -1,15 +1,10 @@
-# laptop tests for the filesystem. run from the repo root:  bash tests/host/run_host_tests.sh
-# builds the real src/filesystem/ext2.c with a fake RAM disk, runs every suite,
-# then checks every disk image with fsck.py. Never touches bin/storage.bin.
 set -u
 cd "$(dirname "$0")/../.."
 
 OUT=bin/host
 mkdir -p "$OUT"
 
-# read/write/delete are also C library names; rename ours so printf keeps working
 RENAME="-Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete"
-# alignment check is off: ext2.c reads uint32_t through the packed BlockBuffer (fine on x86, reported to the team)
 FLAGS="-std=gnu11 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize=alignment -fno-omit-frame-pointer -Isrc -Itests/common -Itests/host"
 
 echo "== build"
@@ -36,11 +31,8 @@ run blank    --blank                        "$OUT/after_blank.img"
 echo
 echo "== health check (fsck)"
 
-# The legacy fixture is used for read-only tests.
-# Verify that reading it leaves its contents unchanged.
 cmp tests/fixtures/sample-image.bin "$OUT/after_team.img" || status=1
 
-# Check all outputs derived from valid images or blank disks.
 python3 tests/host/fsck.py \
     "$OUT/boundary.img" \
     "$OUT/after_boundary.img" \

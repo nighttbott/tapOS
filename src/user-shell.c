@@ -4,9 +4,6 @@
 #include "user/shell.h"
 #include "user/syscall.h"
 
-// shortcut: a folder bigger than 32 blocks cannot be entered, raise this if a folder ever needs it.
-#define SHELL_DIR_BUFFER 16384u
-
 static const struct ShellCommand commands[] = {
     { "cd", cmd_cd },
     { "ls", cmd_ls },
@@ -63,28 +60,19 @@ void shell_cwd_set(uint32_t inode, const char *absolute_path) {
     cwd_inode = inode;
 }
 
-/* read_directory has no inode result, but the first entry of a folder is "." */
 static int dir_child(uint32_t dir, const char *name, uint32_t len, uint32_t *child) {
-    static uint8_t table[SHELL_DIR_BUFFER];
-    struct EXT2DirectoryEntry dot;
-    struct EXT2DriverRequest request = {
-        .buf = table,
-        .name = (char *)name,
-        .name_len = (uint8_t)len,
-        .parent_inode = dir,
-        .buffer_size = SHELL_DIR_BUFFER,
-        .is_directory = true,
-    };
-
-    if (sys_read_dir(&request) != 0) {
-        return -1;
+    if (len == 2 && name[0] == '.' && name[1] == '.') {
+        *child = fsu_parent(dir);
+        return *child == 0 ? -1 : 0;
     }
-    memcpy(&dot, table, sizeof(dot));
-    *child = dot.inode;
-    return 0;
+
+    char entry_name[SHELL_NAME_MAX + 1];
+    uint8_t type;
+    memcpy(entry_name, name, len);
+    entry_name[len] = '\0';
+    return fsu_lookup(dir, entry_name, child, &type) == 0 && type == EXT2_FT_DIR ? 0 : -1;
 }
 
-/* Follows the first len bytes of path. absolute may be NULL when only the inode is needed. */
 static int walk(const char *path, uint32_t len, uint32_t *inode, char *absolute) {
     uint32_t dir = path[0] == '/' ? SHELL_ROOT_INODE : cwd_inode;
     uint32_t absolute_len = 0;

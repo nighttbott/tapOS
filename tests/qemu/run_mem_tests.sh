@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Memory tests on low RAM. Run from the repo root:  bash tests/qemu/run_mem_tests.sh [MiB] [suite]
 set -u
 cd "$(dirname "$0")/../.."
 

@@ -12,7 +12,6 @@
  */
 extern void load_gdt(struct GDTR *gdtr);
 
-/** Enter Ring 3 with a prepared user entry point and stack. */
 __attribute__((noreturn)) void enter_user_mode(void *entry, void *stack_top);
 
 #endif

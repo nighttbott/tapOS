@@ -6,9 +6,7 @@ import time
 
 from qemu_shell import Checks, QemuShell
 
-
 PROMPT = re.compile(r"^tapOS:\S*\$$")
-
 
 def fs_run(shell, line, timeout=30.0):
     """run() for filesystem commands, which may read the disk for a while. The keyboard keeps
@@ -24,7 +22,6 @@ def fs_run(shell, line, timeout=30.0):
             return rows[typed[-1] + 1:prompts[-1]]
         time.sleep(0.2)
     return None
-
 
 shell = QemuShell(*sys.argv[1:4], memory_mb=int(sys.argv[4]), console_rows=25)
 t = Checks()
@@ -44,7 +41,6 @@ try:
     t.check("Q07", "parser error", shell.run("grep a |") == ["shell: empty command in pipeline"])
     t.check("Q08", "prompt is back", shell.wait_for("tapOS:/$", 2))
 
-    # Filesystem commands on the real kernel and disk
     t.check("Q09", "mkdir then ls", fs_run(shell, "mkdir docs") == [] and
             fs_run(shell, "ls") == ["shell", "notes", "imported/", "docs/"])
     fs_run(shell, "cd docs")
@@ -66,7 +62,6 @@ finally:
     shell.save_screen()
     shell.close()
 
-# Second boot on the same disk: what the commands wrote must still be there.
 shell = QemuShell(*sys.argv[1:4], memory_mb=int(sys.argv[4]), console_rows=25)
 try:
     t.check("Q16", "boot again", shell.wait_for("tapOS:/$", 20))

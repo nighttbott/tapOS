@@ -22,7 +22,6 @@ POINTERS = BLOCK // 4
 S_IFDIR, S_IFREG = 0x4000, 0x8000
 GROUPS = BLOCK // 32 // 2   # GROUPS_COUNT in ext2.h: 8 group descriptors
 
-
 def check(path):
     d = open(path, "rb").read()
     errors = []
@@ -43,7 +42,6 @@ def check(path):
             % (groups, blocks_per_group, groups * blocks_per_group, blocks_count))
     bgd = [struct.unpack_from("<3I3H", d, 2 * BLOCK + g * 32) for g in range(groups)]
 
-    # metadata area owned by each group
     owner = {}
     for b in (0, 1, 2):
         owner[b] = "boot/superblock/descriptors"
@@ -125,7 +123,6 @@ def check(path):
     reachable[1] = "/"
     walk(1, 1, "/")
 
-    # bitmaps against reality
     total_free_b, total_free_i = 0, 0
     for g, (bb, ib, _it, fb, fi, _dirs) in enumerate(bgd):
         lo = g * blocks_per_group
@@ -162,7 +159,6 @@ def check(path):
         err("superblock says %d free inodes, bitmaps say %d" % (free_inodes, total_free_i))
     return errors
 
-
 def main():
     bad = 0
     for path in sys.argv[1:]:
@@ -177,7 +173,6 @@ def main():
         else:
             print("FSCK OK   %s" % path)
     return 1 if bad else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

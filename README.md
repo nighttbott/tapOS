@@ -4,7 +4,7 @@
 
 Sistem operasi sederhana untuk platform **x86 32-bit Protected Mode**, dikembangkan menggunakan C dan Assembly NASM sebagai Tugas Besar **IF2130 Sistem Operasi 2026/2027**.
 
-Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Milestone 3**.
+Implementasi ini mencakup kernel dan driver M1, EXT2 M2, serta paging, swap, Ring 3, syscall dan shell M3.
 
 ## Daftar Isi
 
@@ -69,7 +69,6 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 - Logika shell diuji di laptop (`bash tests/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash tests/qemu/run_shell_qemu.sh`).
 - Cara kerja, kontrak command, dan batasannya tersedia di [docs/shell.md](docs/shell.md).
 
-Build user, loader, dan penyambungan syscall awalnya dibagikan ke anggota lain. Karena anggota tersebut tidak dapat dihubungi, bagian ini dikerjakan oleh pemegang shell.
 
 ## Lingkungan Pengembangan
 
@@ -143,7 +142,7 @@ Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS
 make run
 ```
 
-Target ini menjalankan QEMU dengan opsi `-s -S`. GDB server tersedia pada port `1234`, dan CPU menunggu debugger sebelum melanjutkan eksekusi.
+Target ini menunggu debugger pada `127.0.0.1:1234` sebelum menjalankan CPU.
 
 Gunakan perintah QEMU pada langkah 5 untuk menjalankan OS langsung. Jika RAM diubah, gunakan nilai `SYSTEM_MEMORY_MB` yang sama pada build dan QEMU.
 
@@ -221,9 +220,8 @@ Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. 
 ## Batasan Saat Ini
 
 - Input keyboard menggunakan buffer satu karakter.
-- Filesystem diakses melalui interface kernel dan kernel pengujian.
 - Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
-- `cat`, `cp`, `mv`, dan `grep` membaca file sampai 64 KiB. Keluaran tiap tahap dibatasi 16 KiB. `mv` menyalin lalu menghapus sumber, sehingga memerlukan ruang untuk salinan.
+- `cat`, `cp`, dan `grep` membaca file sampai 64 KiB. Keluaran tiap tahap dibatasi 16 KiB. `mv` mempertahankan inode dan data. Direktori tujuan mungkin memerlukan blok baru untuk entri namanya.
 - Parser shell menerima paling banyak 127 karakter per baris dan belum mendukung tanda kutip.
 - Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.

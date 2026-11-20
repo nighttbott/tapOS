@@ -1,6 +1,3 @@
-# Boots the real kernel and shell in QEMU and types commands. Run from the repo root:
-#   bash tests/qemu/run_shell_qemu.sh
-# Uses its own disk image; never touches bin/storage.bin.
 set -u
 cd "$(dirname "$0")/../.."
 

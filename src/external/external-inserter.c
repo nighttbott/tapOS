@@ -6,7 +6,6 @@
 #include <sys/stat.h>
 #include "header/filesystem/ext2.h"
 
-/* Based on the Chapter 3 inserter kit. Only the EXT2 region is held in memory. */
 static uint8_t image_storage[DISK_SPACE];
 static uint8_t file_buffer[DISK_SPACE];
 

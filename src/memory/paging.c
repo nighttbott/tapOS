@@ -53,7 +53,6 @@ struct PageTable *paging_get_page_table(struct PageDirectory *page_dir, uint32_t
     if (dir_entry->flag.present_bit)
         return page_table;
 
-    // Frame owner stays empty, so a page table is never replaced
     uint32_t page_frame_number = paging_acquire_frame();
     if (page_frame_number == 0)
         return NULL;
@@ -103,9 +102,6 @@ void flush_single_tlb(void *virtual_addr) {
     __asm__ volatile("invlpg (%0)" : /* <Empty> */ : "b"(virtual_addr) : "memory");
 }
 
-
-
-/* --- Frame ownership --- */
 static uint32_t paging_find_free_frame(void) {
     for (uint32_t page_frame_number = KERNEL_RESERVED_PAGE_FRAME_COUNT;
          page_frame_number < PAGE_FRAME_MAX_COUNT;
@@ -151,8 +147,6 @@ const struct FrameOwner *paging_get_frame_owner(uint32_t page_frame_number) {
     return &frame_owner[page_frame_number];
 }
 
-
-
 /* --- Memory Management --- */
 bool paging_allocate_check(uint32_t amount) {
     uint32_t required_frames = amount / PAGE_FRAME_SIZE + (amount % PAGE_FRAME_SIZE != 0);
@@ -162,7 +156,6 @@ bool paging_allocate_check(uint32_t amount) {
 bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtual_addr) {
     void *page_addr = (void *) ((uint32_t) virtual_addr & ~(PAGE_FRAME_SIZE - 1));
 
-    // Address 0 is valid, the shell lives there
     if ((uint32_t) page_addr >= KERNEL_VIRTUAL_ADDRESS_BASE)
         return false;
 
@@ -189,7 +182,6 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
             .us_bit      = true,
         }
     );
-    // Reachable only through its new mapping, RAM above 4 MiB is not mapped in kernel space
     memset(page_addr, 0, PAGE_FRAME_SIZE);
     paging_set_frame_owner(page_frame_number, page_dir, page_addr);
     return true;

@@ -12,7 +12,6 @@ OUTPUT_FOLDER = bin
 ISO_NAME      = OS2025
 DISK_NAME     = storage
 
-# RAM in MiB, used by the kernel and QEMU. Example: make run SYSTEM_MEMORY_MB=6
 SYSTEM_MEMORY_MB ?= 128
 
 # Flags
@@ -33,7 +32,7 @@ KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=
         kernel-c-sources kernel-asm-sources shell-module-sources shell_elf
 
 run: all insert-shell
-	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -s -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -gdb tcp:127.0.0.1:1234 -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso -boot order=d
 all: build
 build: iso
 clean:
@@ -83,9 +82,7 @@ $(OUTPUT_FOLDER)/$(DISK_NAME).bin:
 	@mkdir -p $(OUTPUT_FOLDER)
 	@qemu-img create -f raw $@ 5M
 
-# User programs are flat binaries at address 0. Each one gets its own object folder under bin/user,
-# so its link sees only its own objects and the kernel links only KERNEL_OBJECTS.
-USER_PROGRAMS = shell hello clock
+USER_PROGRAMS = shell $(foreach app,hello clock,$(if $(wildcard $(SOURCE_FOLDER)/$(USER_SOURCES_$(app))),$(app)))
 USER_COMMON   = user/syscall.c stdlib/string.c
 SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
                        user/command/navigation.c user/command/file.c user/command/find.c \
@@ -93,11 +90,10 @@ SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
 USER_SOURCES_shell = user-shell.c $(SHELL_MODULE_SOURCES)
 USER_SOURCES_hello = external/hello.c
 USER_SOURCES_clock = external/clock.c
-# Static pattern: a plain user-% would also match user-apps and build a program called "apps"
 .PHONY: $(addprefix user-,$(USER_PROGRAMS))
 $(addprefix user-,$(USER_PROGRAMS)): user-%:
 	@rm -rf $(OUTPUT_FOLDER)/user/$* && mkdir -p $(OUTPUT_FOLDER)/user/$*
-	@$(CC) -m32 -g -c $(SOURCE_FOLDER)/crt0.s -o $(OUTPUT_FOLDER)/user/$*/crt0.o
+	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o $(OUTPUT_FOLDER)/user/$*/crt0.o
 	@for f in $(USER_COMMON) $(USER_SOURCES_$*); do \
 		$(CC) $(CFLAGS) -fno-pie -fno-asynchronous-unwind-tables $(SOURCE_FOLDER)/$$f \
 			-o $(OUTPUT_FOLDER)/user/$*/$$(basename $$f .c).o || exit 1; \
@@ -115,7 +111,6 @@ shell_elf: user-shell
 shell-module-sources:
 	@printf '%s\n' $(addprefix $(SOURCE_FOLDER)/,$(SHELL_MODULE_SOURCES))
 
-# Host program, so read/write/delete are renamed away from the C library ones.
 inserter:
 	@mkdir -p $(OUTPUT_FOLDER)
 	@$(CC) -std=gnu11 -g -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \

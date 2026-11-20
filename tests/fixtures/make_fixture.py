@@ -15,21 +15,15 @@ FT_REG, FT_DIR = 1, 2
 
 disk = bytearray(TOTAL_BLOCKS * BLOCK)
 
-
 def pattern(size):
     return bytes((i * 13 + size) & 0xFF for i in range(size))
-
 
 def metadata_start(group):
     """First block of a group's bitmaps + inode table."""
     return 3 if group == 0 else group * BLOCKS_PER_GROUP
 
-
 def inode_table(group):
     return metadata_start(group) + 2
-
-
-# ---------- allocation bookkeeping ----------
 
 used_blocks = set()
 used_inodes = set()
@@ -37,7 +31,6 @@ for g in range(GROUPS):
     start = metadata_start(g)
     used_blocks.update(range(start, start + 2 + INODETABLE_BLOCKS))
 used_blocks.update({0, 1, 2})
-
 
 def alloc_block(group=0):
     """First free block inside a group (first-fit)."""
@@ -48,9 +41,7 @@ def alloc_block(group=0):
             return b
     raise RuntimeError("group %d is full" % group)
 
-
 next_inode = [1]
-
 
 def alloc_inode(number=None):
     if number is None:
@@ -59,7 +50,6 @@ def alloc_inode(number=None):
         number = next_inode[0]
     used_inodes.add(number)
     return number
-
 
 def write_inode(number, mode, size, data_blocks, pointer_blocks):
     """Write an inode; data_blocks fill i_block[0..11], then single, then double indirect."""
@@ -90,14 +80,12 @@ def write_inode(number, mode, size, data_blocks, pointer_blocks):
     offset = block * BLOCK + (slot % INODES_PER_BLOCK) * INODE_SIZE
     struct.pack_into("<HII15I", disk, offset, mode, size, len(data_blocks), *i_block)
 
-
 def pointer_blocks_needed(data_count):
     if data_count <= 12:
         return 0
     if data_count <= 12 + POINTERS:
         return 1
     return 2 + -(-(data_count - 12 - POINTERS) // POINTERS)
-
 
 def add_file(number, size, group=0):
     count = -(-size // BLOCK)
@@ -109,10 +97,8 @@ def add_file(number, size, group=0):
         disk[b * BLOCK:b * BLOCK + len(piece)] = piece
     write_inode(number, S_IFREG, size, blocks, pointers)
 
-
 def entry_len(name):
     return (9 + len(name) + 3) & ~3
-
 
 def add_dir(number, parent, children):
     """children: list of (name, inode, file_type). Entries never cross a block edge."""
@@ -131,16 +117,12 @@ def add_dir(number, parent, children):
     for b, items in zip(numbers, blocks):
         offset = 0
         for k, (name, ino, ftype) in enumerate(items):
-            # the last entry in a block stretches to the end of the block
             rec = BLOCK - offset if k == len(items) - 1 else entry_len(name)
             struct.pack_into("<IHHB", disk, b * BLOCK + offset, ino, rec, len(name), ftype)
             raw = name.encode()
             disk[b * BLOCK + offset + 9:b * BLOCK + offset + 9 + len(raw)] = raw
             offset += rec
     write_inode(number, S_IFDIR, len(numbers) * BLOCK, numbers, [])
-
-
-# ---------- the tree ----------
 
 root = alloc_inode(1)
 sizes = [0, 1, 511, 512, 513, 6144, 6145, 71680, 71681]
@@ -172,15 +154,12 @@ first1 = alloc_inode(113)              # first inode of group 1, data block in g
 add_file(first1, 12, group=1)
 root_children += [("last0", last0, FT_REG), ("first1", first1, FT_REG)]
 
-# a file and a folder with the same name (allowed by write); the file entry comes first
 dup_file, dup_dir = alloc_inode(), alloc_inode()
 add_file(dup_file, 5)
 add_dir(dup_dir, root, [])
 root_children += [("dup", dup_file, FT_REG), ("dup", dup_dir, FT_DIR)]
 
 add_dir(root, root, root_children)
-
-# ---------- boot block, superblock, group descriptors, bitmaps ----------
 
 signature = bytearray(BLOCK)
 rows = ["Course          ", "Designed by     ", "Lab Sister ITB  ", "Made with <3    ", "-----------2025\n"]

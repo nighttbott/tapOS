@@ -11,7 +11,6 @@
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
 
-// Must match the ASSERT in src/user-linker.ld: code, data and .bss of the shell.
 #define USER_IMAGE_SIZE  0x40000u
 #define USER_STACK_PAGES 4u
 
@@ -23,11 +22,6 @@ static void halt_with_message(const char *text) {
         __asm__ volatile("hlt");
 }
 
-/*
- * Maps the shell image and stack up front: syscalls only accept present pages,
- * so .bss buffers cannot rely on the page fault handler. New pages are zeroed,
- * which also clears .bss.
- */
 static void load_shell(void) {
     struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
     uint32_t stack_bottom = KERNEL_VIRTUAL_ADDRESS_BASE - USER_STACK_PAGES * PAGE_FRAME_SIZE;
@@ -71,7 +65,6 @@ void kernel_setup(void) {
     framebuffer_set_cursor(0, 0);
     initialize_filesystem_ext2();
     initialize_tss();
-    // No syscall turns the keyboard on, so the kernel does it before Ring 3
     keyboard_state_activate();
 
     load_shell();

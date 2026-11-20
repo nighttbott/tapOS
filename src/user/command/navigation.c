@@ -3,9 +3,6 @@
 #include "user/commands.h"
 #include "user/syscall.h"
 
-/* Folder commands: cd, ls, mkdir. */
-
-/* Explains why path is not a folder: it is a file, or it does not exist. */
 static void not_a_folder(struct ShellIO *io, const char *cmd, const char *path) {
     struct FsuTarget target;
 
@@ -33,11 +30,10 @@ int cmd_cd(int argc, char **argv, struct ShellIO *io) {
     return 0;
 }
 
-/* Lists one entry per line in folder order; folders end with '/'. A file path prints itself. */
 int cmd_ls(int argc, char **argv, struct ShellIO *io) {
     char path[SHELL_PATH_MAX];
     const char *target = argc == 2 ? argv[1] : ".";
-    const uint8_t *table;
+    char name[SHELL_NAME_MAX + 1];
     struct FsuTarget file;
     struct FsuEntry entry;
     uint32_t inode;
@@ -56,19 +52,18 @@ int cmd_ls(int argc, char **argv, struct ShellIO *io) {
         fsu_error(io, "ls", target, "not found");
         return 1;
     }
-    table = fsu_list(inode);
-    if (table == NULL) {
-        fsu_error(io, "ls", target, "cannot read directory");
-        return 1;
-    }
-    while (fsu_next_entry(table, &offset, &entry)) {
+    int result;
+    while ((result = fsu_read_dir_entry(inode, &offset, &entry, name)) == 1) {
         shell_out(io, entry.name, entry.name_len);
         shell_out_str(io, entry.type == EXT2_FT_DIR ? "/\n" : "\n");
+    }
+    if (result < 0) {
+        fsu_error(io, "ls", target, "cannot read directory");
+        return 1;
     }
     return 0;
 }
 
-/* Creates every folder named on the line; one failure does not stop the others. */
 int cmd_mkdir(int argc, char **argv, struct ShellIO *io) {
     int status = 0;
 
@@ -82,7 +77,6 @@ int cmd_mkdir(int argc, char **argv, struct ShellIO *io) {
         uint32_t parent;
         struct EXT2DriverRequest request = { .buf = NULL, .name = name, .is_directory = true };
 
-        // Covers "/", ".", ".." and folders that already exist.
         if (shell_resolve_dir(argv[i], &parent, path) == 0) {
             fsu_error(io, "mkdir", argv[i], "already exists");
             status = 1;

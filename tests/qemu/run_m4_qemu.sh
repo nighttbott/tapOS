@@ -1,6 +1,3 @@
-# Milestone 4 end to end (P01-P12): boots the real kernel with shell, hello and clock,
-# types commands and checks the screen. Run from the repo root:  bash tests/qemu/run_m4_qemu.sh
-# Uses its own disk image; never touches bin/storage.bin.
 set -u
 cd "$(dirname "$0")/../.."
 

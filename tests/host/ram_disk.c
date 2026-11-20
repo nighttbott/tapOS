@@ -4,10 +4,6 @@
 #include "header/driver/disk.h"
 #include "ram_disk.h"
 
-/*
-* fake disk for laptop tests. it porvides the 2 func. as disk.c, but reads and writes a block of memory instead of ATA hard disk
-*/
-
 static uint8_t *disk;
 static size_t disk_size;
 unsigned long ram_disk_reads, ram_disk_writes;

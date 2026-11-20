@@ -63,8 +63,6 @@ const char keyboard_scancode_1_to_ascii_shift_map[256] = {
       0,    0,   0,   0,   0,   0,   0,   0,    0,   0,   0,    0,    0,   0,    0,    0,
 };
 
-
-
 static struct KeyboardDriverState keyboard_state = {
     .read_extended_mode = false,
     .keyboard_input_on = false,
@@ -149,7 +147,6 @@ void keyboard_isr(void) {
                 break;
 
             default:
-                /* Tombol extended lainnya belum didukung. */
                 break;
         }
 

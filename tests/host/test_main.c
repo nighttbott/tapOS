@@ -5,13 +5,6 @@
 #include "fs_cases.h"
 #include "ram_disk.h"
 
-/*
- * laptop test runner.
- *   test_fs <suite> <image | --blank> [--save out.img]
- * suites: team, boundary, blank, existing, delete
- * exit code 0 only when every check passed.
- */
-
 static void print_line(const char *text) {
     fputs(text, stdout);
 }

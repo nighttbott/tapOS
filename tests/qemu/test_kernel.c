@@ -8,19 +8,12 @@
 #include "mem_cases.h"
 #include "serial.h"
 
-/*
- * Test kernel. It replaces src/kernel.c only in test builds made by
- * tests/qemu/run_qemu_tests.sh, so the normal OS is not changed.
- * TAPOS_TEST_SUITE picks the suite, for example -DTAPOS_TEST_SUITE=fs_suite_boundary
- */
-
 #ifndef TAPOS_TEST_SUITE
 #error "build with -DTAPOS_TEST_SUITE=<suite function> -DTAPOS_TEST_NAME=\"name\""
 #endif
 
 static uint8_t screen_row;
 
-// Each result line goes to the serial port (for the script) and to the screen (for people)
 static void kernel_print(const char *text) {
     serial_write(text);
     if (screen_row >= FRAMEBUFFER_HEIGHT) {

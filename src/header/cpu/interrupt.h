@@ -11,7 +11,6 @@
 #define PIC1_OFFSET          0x20
 #define PIC2_OFFSET          0x28
 
-// CPU exception vector
 #define PAGE_FAULT_VECTOR    0x0E
 
 // PIC ports
@@ -39,7 +38,6 @@
 #define ICW4_BUF_MASTER      0x0C   /* Buffered mode/master */
 #define ICW4_SFNM            0x10   /* Special fully nested (not) */
 
-
 /* -- PICs IRQ list -- */
 
 // PIC Master
@@ -61,7 +59,6 @@
 #define IRQ_FPU          13
 #define IRQ_PRIMARY_ATA  14
 #define IRQ_SECOND_ATA   15
-
 
 /**
  * CPURegister, store CPU registers values.
@@ -128,8 +125,6 @@ struct InterruptFrame {
     struct InterruptStack int_stack;
 } __attribute__((packed));
 
-
-
 // Activate PIC mask for keyboard only
 void activate_keyboard_interrupt(void);
 
@@ -142,10 +137,8 @@ void pic_ack(uint8_t irq);
 // Shift PIC interrupt number to PIC1_OFFSET and PIC2_OFFSET (master and slave)
 void pic_remap(void);
 
-/* Called only by the assembly ISR. Changes to the saved frame survive iret. */
 void main_interrupt_handler(struct InterruptFrame *frame);
 
-/** x86 32-bit Task State Segment used on Ring 3 -> Ring 0 transitions. */
 struct TaskStateSegment {
     uint32_t previous_task;
     uint32_t esp0;

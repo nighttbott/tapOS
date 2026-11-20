@@ -10,7 +10,7 @@
 | `src/user/fsutil.c` | Fungsi filesystem yang dipakai bersama oleh perintah shell |
 | `src/user/syscall.h`, `syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
 | `tests/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
-| `tests/host/shell_test.c` | Test H01–H17 |
+| `tests/host/shell_test.c` | Test H01–H46 |
 | `tests/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
 | `src/crt0.s`, `src/user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
 | `src/external/external-inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
@@ -84,7 +84,7 @@ Tidak ada stderr terpisah. Pesan error ditulis lewat `shell_out`, dan return buk
 
 State CWD adalah `cwd_inode` dan `cwd_path`, diawali root (inode 1, `/`).
 
-Tidak ada syscall untuk mencari inode, jadi `dir_child` memakai sifat filesystem: `read_directory` dengan `name` dan `parent_inode` membaca folder tujuan, dan entri pertama folder selalu `.` yang berisi inode folder itu sendiri. Nama `..` bekerja dengan cara yang sama.
+`dir_child` membaca direktori per blok dan mencari entri berdasarkan namanya. Nama `..` dibaca dari blok pertama inode direktori saat ini.
 
 `walk` mengikuti path per komponen, mulai dari root bila path diawali `/`, atau dari CWD bila tidak:
 
@@ -202,7 +202,7 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 | Panjang baris | 127 karakter | Shell menolak seluruh baris bila batas terlewati |
 | Keluaran per stage | 16 KiB | Lebih dari itu: `pipeline: output too large`, tanpa keluaran parsial |
 | Ukuran file `grep` | 64 KiB | `file too large` |
-| Ukuran folder yang bisa dimasuki | 16 KiB (32 blok) | Folder lebih besar dianggap tidak ada |
+| Direktori untuk `cp -r` dan `rm -r` | 16 KiB dan kedalaman 64 | Operasi rekursif memiliki batas buffer dan kedalaman |
 | Panjang path | 255 karakter | `shell_resolve_dir` gagal |
 | Tanda kutip | Tidak didukung | Argumen tidak bisa berisi spasi atau `\|` |
 | Riwayat dan edit dengan panah | Tidak ada | Tombol panah diabaikan |

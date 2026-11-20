@@ -1,18 +1,18 @@
-/* User entry point. Assemble with gcc -m32, using GNU assembler syntax. */
-.section .text.entry,"ax",@progbits
-.globl _start
-.type _start,@function
+bits 32
+section .text.entry progbits alloc exec nowrite align=16
+global _start:function
+extern main
+extern sys_exit
+
 _start:
     cld
-    andl $-16, %esp
+    and esp, -16
     call main
 
-    /* Preserve the M4 exit ABI when main returns. */
-    subl $12, %esp
-    pushl %eax
+    sub esp, 12
+    push eax
     call sys_exit
-1:
-    jmp 1b
-.size _start, .-_start
+.hang:
+    jmp .hang
 
-.section .note.GNU-stack,"",@progbits
+section .note.GNU-stack noalloc noexec nowrite progbits

@@ -1,8 +1,6 @@
 #include <string.h>
 #include "user/syscall.h"
 
-/* Laptop version of the syscall wrappers. Filesystem calls reach the real ext2.c on ram_disk. */
-
 char mock_output[65536];
 uint32_t mock_output_len;
 const char *mock_input = "";
@@ -17,7 +15,6 @@ int32_t sys_write_text(const char *buf, uint32_t len) {
     return (int32_t)len;
 }
 
-/* Every other call has no key yet, like the real keyboard. A used-up script ends the line so a bad test cannot hang. */
 int32_t sys_read_char(char *out) {
     static int ready;
 
@@ -44,8 +41,6 @@ int32_t sys_write_file(struct EXT2DriverRequest *req) {
 int32_t sys_delete(struct EXT2DriverRequest *req) {
     return fs_delete(*req);
 }
-
-/* Process services: the test sets the answer and reads back what the shell sent. */
 
 struct MockExec {
     int32_t  result;
@@ -88,4 +83,12 @@ int32_t sys_process_list(struct SyscallProcessInfo *buf, uint32_t capacity) {
         memcpy(buf, mock_ps, (uint32_t)count * sizeof(*buf));
     }
     return count;
+}
+
+int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer) {
+    return ext2_read_directory_block(inode, index, buffer);
+}
+
+int32_t sys_move(const struct EXT2MoveRequest *request) {
+    return ext2_move(request);
 }

@@ -3,9 +3,8 @@
 #include "user/commands.h"
 #include "user/syscall.h"
 
-static uint8_t listing[FSU_DIR_BUFFER];  // fsu_list
-static uint8_t probe[FSU_DIR_BUFFER];    // lookups, so they never clobber a listing in use
-static char file_buffer[FSU_FILE_MAX];   // fsu_read_file
+static uint8_t listing[FSU_DIR_BUFFER];
+static char file_buffer[FSU_FILE_MAX];
 
 bool fsu_is_dot(const char *name, uint32_t len) {
     return (len == 1 && name[0] == '.') || (len == 2 && name[0] == '.' && name[1] == '.');
@@ -20,7 +19,6 @@ void fsu_error(struct ShellIO *io, const char *cmd, const char *path, const char
     shell_out_str(io, "\n");
 }
 
-/* read_directory with name "." reads the folder parent_inode itself. */
 static bool read_dir(uint32_t dir, const char *name, uint8_t name_len, uint8_t *table) {
     struct EXT2DriverRequest request = {
         .buf = table,
@@ -31,7 +29,6 @@ static bool read_dir(uint32_t dir, const char *name, uint8_t name_len, uint8_t *
         .is_directory = true,
     };
 
-    // Unused space must read as rec_len 0, which is where fsu_next_entry stops.
     memset(table, 0, FSU_DIR_BUFFER);
     return sys_read_dir(&request) == 0;
 }
@@ -64,22 +61,50 @@ bool fsu_next_entry(const uint8_t *table, uint32_t *offset, struct FsuEntry *ent
     return false;
 }
 
+int fsu_read_dir_entry(uint32_t dir, uint32_t *cursor, struct FsuEntry *entry,
+                       char name[SHELL_NAME_MAX + 1]) {
+    struct BlockBuffer block;
+    uint32_t offset = *cursor % BLOCK_SIZE;
+
+    for (;;) {
+        int32_t status = sys_read_dir_block(dir, *cursor / BLOCK_SIZE, block.buf);
+        if (status != 1)
+            return status;
+
+        while (offset < BLOCK_SIZE) {
+            struct EXT2DirectoryEntry raw;
+            if (BLOCK_SIZE - offset < sizeof(raw))
+                return -1;
+            memcpy(&raw, block.buf + offset, sizeof(raw));
+            if (raw.name_len > SHELL_NAME_MAX ||
+                raw.rec_len < sizeof(raw) + raw.name_len ||
+                raw.rec_len > BLOCK_SIZE - offset || (raw.rec_len & 3u) != 0)
+                return -1;
+            const char *entry_name = (const char *)block.buf + offset + sizeof(raw);
+            offset += raw.rec_len;
+            *cursor += raw.rec_len;
+            if (raw.inode == 0 || raw.name_len == 0 || fsu_is_dot(entry_name, raw.name_len))
+                continue;
+            memcpy(name, entry_name, raw.name_len);
+            name[raw.name_len] = '\0';
+            *entry = (struct FsuEntry){raw.inode, raw.file_type, name, raw.name_len};
+            return 1;
+        }
+        offset = 0;
+    }
+}
+
 int fsu_lookup(uint32_t dir, const char *name, uint32_t *inode, uint8_t *type) {
-    uint32_t len = shell_strlen(name);
     uint32_t offset = 0;
     struct FsuEntry entry;
+    char entry_name[SHELL_NAME_MAX + 1];
 
-    if (!read_dir(dir, ".", 1, probe)) {
-        return -1;
-    }
-    while (fsu_next_entry(probe, &offset, &entry)) {
-        if (entry.name_len == len && memcmp(entry.name, name, len) == 0) {
-            if (inode != NULL) {
+    while (fsu_read_dir_entry(dir, &offset, &entry, entry_name) == 1) {
+        if (shell_strcmp(entry_name, name) == 0) {
+            if (inode != NULL)
                 *inode = entry.inode;
-            }
-            if (type != NULL) {
+            if (type != NULL)
                 *type = entry.type;
-            }
             return 0;
         }
     }
@@ -95,18 +120,22 @@ int fsu_stat(const char *path, struct FsuTarget *target) {
 }
 
 uint32_t fsu_parent(uint32_t dir) {
-    struct EXT2DirectoryEntry dot;
+    struct BlockBuffer block;
+    struct EXT2DirectoryEntry dot, dotdot;
 
-    // The first entry of any folder is "." with its own inode, so reading ".." of dir yields the parent.
-    if (!read_dir(dir, "..", 2, probe)) {
+    if (sys_read_dir_block(dir, 0, block.buf) != 1)
         return 0;
-    }
-    memcpy(&dot, probe, sizeof(dot));
-    return dot.inode;
+    memcpy(&dot, block.buf, sizeof(dot));
+    if (dot.rec_len < sizeof(dot) || dot.rec_len > BLOCK_SIZE - sizeof(dotdot) - 2)
+        return 0;
+    memcpy(&dotdot, block.buf + dot.rec_len, sizeof(dotdot));
+    if (dotdot.name_len != 2 || dotdot.rec_len < sizeof(dotdot) + 2 ||
+        memcmp(block.buf + dot.rec_len + sizeof(dotdot), "..", 2) != 0)
+        return 0;
+    return dotdot.inode;
 }
 
 bool fsu_is_inside(uint32_t dir, uint32_t ancestor) {
-    // A path cannot hold more folders than this, so a broken ".." chain cannot loop forever.
     for (uint32_t step = 0; step < SHELL_PATH_MAX; step++) {
         uint32_t up;
 
@@ -141,11 +170,6 @@ int32_t fsu_read_file(uint32_t parent, const char *name, const char **data, uint
         return code;
     }
 
-    /*
-     * read() does not report the file size, but it answers 2 when buffer_size is smaller than
-     * the file. The smallest buffer_size it accepts is therefore the exact size, so trailing
-     * NUL bytes survive cp and mv.
-     */
     while (low < high) {
         uint32_t middle = low + (high - low) / 2;
 
@@ -203,11 +227,6 @@ static int32_t remove_entry(uint32_t parent, const char *name, uint32_t len, boo
     return sys_delete(&request);
 }
 
-/*
- * Deletes everything inside folder dir. Each round lists dir again and removes its first child,
- * so no names have to be kept across the recursion. A child folder that is not empty is emptied
- * first and removed in the next round.
- */
 static bool clear_dir(uint32_t dir, uint32_t depth) {
     uint32_t emptied = 0;
 
@@ -230,7 +249,6 @@ static bool clear_dir(uint32_t dir, uint32_t depth) {
         if (code == 0) {
             continue;
         }
-        // Only "folder not empty" is worth a retry, and only once per folder.
         if (code != 2 || entry.inode == emptied || depth >= FSU_DEPTH_MAX ||
             !clear_dir(entry.inode, depth + 1)) {
             return false;
@@ -275,10 +293,6 @@ int32_t fsu_write_file(uint32_t parent, const char *name, const void *data, uint
 
 static char copy_name[SHELL_NAME_MAX + 1];
 
-/*
- * Copies the children of folder src into folder dst. The listing of src is read again only after
- * a recursion, which reuses the listing buffer; offset stays valid because src does not change.
- */
 static bool copy_children(uint32_t src, uint32_t dst, uint32_t depth) {
     const uint8_t *table = NULL;
     uint32_t offset = 0;
@@ -327,7 +341,6 @@ int32_t fsu_copy_tree(uint32_t src, uint32_t dst_parent, const char *name) {
         return code;
     }
     if (fsu_lookup(dst_parent, name, &made, NULL) != 0 || !copy_children(src, made, 1)) {
-        // Leave nothing half copied behind.
         fsu_remove_tree(dst_parent, name);
         return -1;
     }
@@ -342,7 +355,6 @@ const char *fsu_destination(const char *dest, const char *src_name, bool many,
     struct FsuTarget existing;
 
     if (shell_resolve_dir(dest, &out->parent, absolute) == 0) {
-        // An existing folder: the source keeps its name inside it.
         memcpy(out->name, src_name, name_len + 1);
         memcpy(out->shown, dest, dest_len);
         if (dest_len > 0 && dest[dest_len - 1] != '/') {

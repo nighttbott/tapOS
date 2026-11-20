@@ -6,8 +6,6 @@
 #include "user/shell.h"
 #include "user/syscall.h"
 
-/* laptop test of the shell logic.  test_shell <disk image> */
-
 extern char mock_output[];
 extern uint32_t mock_output_len;
 extern const char *mock_input;
@@ -46,8 +44,6 @@ static void check_output(const char *id, const char *what, const char *expected)
     }
 }
 
-/* ---------- commands that exist only in this test ---------- */
-
 static int cmd_fruit(int argc, char **argv, struct ShellIO *io) {
     (void)argc;
     (void)argv;
@@ -66,7 +62,6 @@ static int cmd_pass(int argc, char **argv, struct ShellIO *io) {
     return 0;
 }
 
-/* Output grows ahead of the input, so stages sharing one buffer would corrupt it. */
 static int cmd_prefix(int argc, char **argv, struct ShellIO *io) {
     (void)argc;
     (void)argv;
@@ -113,8 +108,6 @@ static const struct ShellCommand test_commands[] = {
     { "big", cmd_big },
 };
 
-/* ---------- helpers ---------- */
-
 static void reset_output(void) {
     mock_output[0] = '\0';
     mock_output_len = 0;
@@ -129,7 +122,6 @@ static int run(const char *text) {
     return shell_execute_commands(line, test_commands, sizeof(test_commands) / sizeof(test_commands[0]));
 }
 
-/* Walks the folder table by hand, so the expected inode does not come from the shell code. */
 static uint32_t child_inode(uint32_t parent, const char *name) {
     static uint8_t table[65536];
     struct EXT2DriverRequest request = {
@@ -174,8 +166,6 @@ static void check_dir(const char *id, const char *path, uint32_t inode, const ch
     check(id, path, shell_resolve_dir(path, &got, resolved) == 0 && got == inode &&
           strcmp(resolved, absolute) == 0);
 }
-
-/* ---------- cases ---------- */
 
 static void parser_cases(void) {
     static const char *const bad[] = { "fruit |", "| grep a", "fruit || pass", "|", "fruit | " };
@@ -389,7 +379,6 @@ static void reader_cases(void) {
           !shell_read_line(line) && strstr(mock_output, "shell: input line too long\n") != NULL);
 }
 
-/* Runs a line through the real command table, like the REPL does. */
 static int run_real(const char *text) {
     char line[SHELL_LINE_MAX * 2];
 
@@ -487,8 +476,6 @@ static void proc_cases(void) {
     }
     check("H21", "bad PIDs never reach the kernel", mock_kill_calls == 0);
 }
-
-/* ---------- E commands (M3) ---------- */
 
 static void fsutil_cases(void) {
     static const char tail[] = { 'a', 'b', 0, 0, 0 };
@@ -667,7 +654,6 @@ static void rm_cases(void) {
     check("H32", "name can be used again", child_inode(SHELL_ROOT_INODE, "gone") != 0);
     run_real("rm gone");
 
-    // box holds inner/ and deeper/; fill it so rm -r has to go two levels down
     write_file(child_inode(box, "inner"), "leaf", "leaf", 4);
     run_real("mkdir box/inner/sub");
     write_file(child_inode(child_inode(box, "inner"), "sub"), "leaf2", "leaf2", 5);
@@ -706,7 +692,6 @@ static void rm_cases(void) {
     check("H34", "unknown later stage deletes nothing", child_inode(SHELL_ROOT_INODE, "notes") != 0);
 }
 
-/* Reads a whole file by hand for comparisons; returns its size or -1. */
 static int file_bytes(uint32_t parent, const char *name, char *out, uint32_t capacity) {
     const char *data;
     uint32_t size;
@@ -863,7 +848,6 @@ static void mv_cases(void) {
     check_output("H40", "one operand", "usage: mv SOURCE... DEST\n");
 }
 
-/* Output checks that do not depend on the order of folder entries. */
 static bool has_line(const char *line) {
     char wanted[SHELL_PATH_MAX + 2];
     const char *at = mock_output;
@@ -920,7 +904,6 @@ static void find_cases(void) {
     check_output("H42", "two arguments", "usage: find NAME\n");
 }
 
-/* Disk full in the middle of cp -r / mv: the partial copy is removed and the source stays. */
 static void full_disk_cases(void) {
     static char chunk[FSU_FILE_MAX];
     char name[16];
@@ -949,23 +932,64 @@ static void full_disk_cases(void) {
     check("H43", "cp -r fails on a full disk", run_real("cp -r box boxcopy") != 0 &&
           strcmp(mock_output, "cp: box: copy failed (disk full?)\n") == 0);
     check("H43", "no partial copy left", child_inode(1, "boxcopy") == 0);
-    check("H43", "mv fails and keeps the source", run_real("mv box boxmoved") != 0 &&
-          child_inode(1, "boxmoved") == 0 && child_inode(1, "box") == box &&
-          child_inode(box, "moved") != 0);
+    check("H43", "rename succeeds on a full disk and preserves the inode",
+          run_real("mv box boxmoved") == 0 && child_inode(1, "boxmoved") == box &&
+          child_inode(1, "box") == 0 && child_inode(box, "moved") != 0);
 
     check("H44", "failed cp preserves the existing destination on a full disk",
           run_real("cp replace-src replace-dst") != 0 &&
           file_bytes(1, "replace-dst", old_contents, sizeof(old_contents)) == 3 &&
           memcmp(old_contents, "old", 3) == 0);
-    check("H44", "failed mv preserves source and existing destination on a full disk",
-          run_real("mv replace-src replace-dst") != 0 &&
-          child_inode(1, "replace-src") != 0 &&
-          file_bytes(1, "replace-dst", old_contents, sizeof(old_contents)) == 3 &&
-          memcmp(old_contents, "old", 3) == 0);
+    uint32_t source = child_inode(1, "replace-src");
+    check("H44", "mv replaces a file on a full disk and preserves its inode and bytes",
+          run_real("mv replace-src replace-dst") == 0 &&
+          child_inode(1, "replace-src") == 0 &&
+          child_inode(1, "replace-dst") == source &&
+          file_bytes(1, "replace-dst", chunk, sizeof(chunk)) == (int)sizeof(chunk) &&
+          chunk[0] == 'f' && chunk[sizeof(chunk) - 1] == 'f');
 
     check("H43", "space comes back with rm -r", run_real("rm -r fill") == 0 &&
-          run_real("cp -r box boxcopy") == 0 && child_inode(child_inode(1, "boxcopy"), "moved") != 0);
+          run_real("cp -r boxmoved boxcopy") == 0 && child_inode(child_inode(1, "boxcopy"), "moved") != 0);
     run_real("rm -r boxcopy");
+}
+
+static void large_directory_cases(void) {
+    char name[245];
+    char path[540];
+    uint32_t wide;
+    bool populated = true;
+
+    run_real("mkdir wide");
+    wide = child_inode(SHELL_ROOT_INODE, "wide");
+    memset(name, 'x', sizeof(name) - 1);
+    name[sizeof(name) - 1] = '\0';
+    for (int i = 0; i < 70; i++) {
+        name[0] = 'a' + i / 26;
+        name[1] = 'a' + i % 26;
+        struct EXT2DriverRequest request = {
+            .name = name, .name_len = (uint8_t)strlen(name), .parent_inode = wide,
+        };
+        if (sys_write_file(&request) != 0) {
+            populated = false;
+            break;
+        }
+    }
+    check("H45", "directory spans more than 32 blocks", populated &&
+          fsu_write_file(wide, "late", NULL, 0, true) == 0 &&
+          sys_read_dir_block(wide, 32, (uint8_t[BLOCK_SIZE]){0}) == 1);
+    check("H45", "cd follows an entry past the old directory buffer",
+          run_real("cd /wide/late") == 0 && strcmp(shell_cwd_path(), "/wide/late") == 0);
+    run_real("cd /");
+    uint32_t late = child_inode(wide, "late");
+    uint32_t outer, inner;
+    check("H46", "create deep path components", fsu_write_file(late, name, NULL, 0, true) == 0 &&
+          fsu_lookup(late, name, &outer, NULL) == 0 &&
+          fsu_write_file(outer, name, NULL, 0, true) == 0 &&
+          fsu_lookup(outer, name, &inner, NULL) == 0 &&
+          fsu_write_file(inner, "deepneedle", NULL, 0, false) == 0);
+    snprintf(path, sizeof(path), "/wide/late/%s/%s/deepneedle\n", name, name);
+    run_real("find deepneedle");
+    check_output("H46", "find reports a match beyond the old 256-byte path limit", path);
 }
 
 int main(int argc, char **argv) {
@@ -992,8 +1016,8 @@ int main(int argc, char **argv) {
     mv_cases();
     find_cases();
     full_disk_cases();
+    large_directory_cases();
     fs_test_sum(&ctx, "shell");
-    // run_shell_tests.sh runs fsck on this image: cp -r, rm -r and mv must not leak blocks or inodes
     if (ram_disk_save("bin/host/shell_after.img") != 0) {
         fprintf(stderr, "cannot save bin/host/shell_after.img\n");
         return 1;

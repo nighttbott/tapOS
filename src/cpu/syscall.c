@@ -5,11 +5,32 @@
 #include "header/driver/keyboard.h"
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
+#include "header/memory/swap.h"
 #include "header/text/framebuffer.h"
 #include "header/stdlib/string.h"
 
 static uint8_t console_row;
 static uint8_t console_col;
+
+struct SyscallPageRange {
+    uint32_t first;
+    uint32_t end;
+};
+
+static struct SyscallPageRange pinned_ranges[3];
+static unsigned pinned_range_count;
+
+static void syscall_unpin_pages(void) {
+    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
+
+    while (pinned_range_count != 0) {
+        struct SyscallPageRange range = pinned_ranges[--pinned_range_count];
+        for (uint32_t addr = range.first; addr < range.end; addr += PAGE_FRAME_SIZE) {
+            struct PageTableEntry *entry = paging_get_page_table_entry(page_dir, (void *)addr);
+            entry->ignored &= ~PTE_IGNORED_PINNED;
+        }
+    }
+}
 
 static bool syscall_validate_user_range(const void *address, uint32_t size,
                                         bool writable) {
@@ -30,6 +51,10 @@ static bool syscall_validate_user_range(const void *address, uint32_t size,
     page_dir = paging_get_current_page_directory_addr();
     first &= ~(PAGE_FRAME_SIZE - 1u);
     last &= ~(PAGE_FRAME_SIZE - 1u);
+    if (pinned_range_count == sizeof(pinned_ranges) / sizeof(pinned_ranges[0]))
+        return false;
+    struct SyscallPageRange *range = &pinned_ranges[pinned_range_count++];
+    *range = (struct SyscallPageRange){first, first};
     while (true) {
         const struct PageDirectoryEntry *directory_entry = &page_dir->table[first >> 22];
         if (!directory_entry->flag.present_bit || !directory_entry->flag.us_bit ||
@@ -39,10 +64,16 @@ static bool syscall_validate_user_range(const void *address, uint32_t size,
         }
         struct PageTableEntry *entry =
             paging_get_page_table_entry(page_dir, (void *)first);
-        if (entry == NULL || !entry->flag.present_bit || !entry->flag.us_bit ||
+        if (entry == NULL || !entry->flag.us_bit ||
             (writable && !entry->flag.write_bit)) {
             return false;
         }
+        if (!entry->flag.present_bit &&
+            (!(entry->ignored & PTE_IGNORED_SWAPPED) || !swap_in(page_dir, (void *)first))) {
+            return false;
+        }
+        entry->ignored |= PTE_IGNORED_PINNED;
+        range->end = first + PAGE_FRAME_SIZE;
         if (first == last) {
             return true;
         }
@@ -168,8 +199,24 @@ void syscall_dispatch(struct InterruptFrame *frame) {
                 result = delete(request);
             }
             break;
+        case SYSCALL_READ_DIRECTORY_BLOCK:
+            if (syscall_validate_user_range((void *)frame->cpu.general.edx, BLOCK_SIZE, true))
+                result = ext2_read_directory_block(argument, frame->cpu.general.ecx,
+                                                   (void *)frame->cpu.general.edx);
+            break;
+        case SYSCALL_MOVE: {
+            struct EXT2MoveRequest move;
+            if (!syscall_validate_user_range((void *)argument, sizeof(move), false))
+                break;
+            memcpy(&move, (void *)argument, sizeof(move));
+            if (syscall_validate_user_range(move.source_name, move.source_length, false) &&
+                syscall_validate_user_range(move.destination_name, move.destination_length, false))
+                result = ext2_move(&move);
+            break;
+        }
         default:
             break;
     }
+    syscall_unpin_pages();
     frame->cpu.general.eax = (uint32_t)result;
 }
