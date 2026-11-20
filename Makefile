@@ -70,7 +70,7 @@ disk:
 # so its link sees only its own objects and the kernel link (bin/*.o) sees none of them.
 USER_PROGRAMS = shell hello clock
 USER_COMMON   = user/crt0.c user/syscall.c stdlib/string.c
-USER_SOURCES_shell = user/shell.c user/grep.c user/proc.c
+USER_SOURCES_shell = user/shell.c user/grep.c user/proc.c user/fsutil.c
 USER_SOURCES_hello = user/hello.c
 USER_SOURCES_clock = user/clock.c
 # Static pattern: a plain user-% would also match user-apps and build a program called "apps"

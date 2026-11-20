@@ -2,6 +2,7 @@
 #include <string.h>
 #include "fs_test.h"
 #include "ram_disk.h"
+#include "user/commands.h"
 #include "user/shell.h"
 #include "user/syscall.h"
 
@@ -480,6 +481,44 @@ static void proc_cases(void) {
     check("H21", "bad PIDs never reach the kernel", mock_kill_calls == 0);
 }
 
+/* ---------- E commands (M3) ---------- */
+
+static void fsutil_cases(void) {
+    static const char tail[] = { 'a', 'b', 0, 0, 0 };
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+    uint32_t a = child_inode(docs, "a");
+    uint32_t b = child_inode(a, "b");
+    const char *data = NULL;
+    uint32_t size = 0;
+    uint32_t inode = 0;
+    uint8_t type = 0;
+    struct FsuTarget target;
+
+    write_file(SHELL_ROOT_INODE, "tail", tail, sizeof(tail));
+    write_file(SHELL_ROOT_INODE, "empty", "", 0);
+    check("H22", "exact size keeps trailing NUL bytes",
+          fsu_read_file(SHELL_ROOT_INODE, "tail", &data, &size) == 0 && size == sizeof(tail) &&
+          memcmp(data, tail, sizeof(tail)) == 0);
+    check("H22", "empty file has size 0",
+          fsu_read_file(SHELL_ROOT_INODE, "empty", &data, &size) == 0 && size == 0);
+    check("H22", "missing file", fsu_read_file(SHELL_ROOT_INODE, "nothing", &data, &size) == 3);
+    check("H22", "folder is not a file", fsu_read_file(SHELL_ROOT_INODE, "docs", &data, &size) == 1);
+    check("H22", "read_path folder", strcmp(fsu_read_path("/docs", &data, &size), "is a directory") == 0);
+    check("H22", "read_path missing", strcmp(fsu_read_path("/no/x", &data, &size), "not found") == 0);
+
+    check("H23", "lookup folder", fsu_lookup(docs, "a", &inode, &type) == 0 && inode == a &&
+          type == EXT2_FT_DIR);
+    check("H23", "lookup file", fsu_lookup(SHELL_ROOT_INODE, "tail", NULL, &type) == 0 &&
+          type == EXT2_FT_REG_FILE);
+    check("H23", "lookup skips dot entries", fsu_lookup(docs, "..", NULL, NULL) == -1);
+    check("H23", "stat path", fsu_stat("/docs/a/b", &target) == 0 && target.parent == a &&
+          target.inode == b && strcmp(target.name, "b") == 0);
+    check("H23", "stat refuses ..", fsu_stat("docs/..", &target) == -1);
+    check("H23", "parent", fsu_parent(b) == a && fsu_parent(SHELL_ROOT_INODE) == SHELL_ROOT_INODE);
+    check("H23", "inside", fsu_is_inside(b, docs) && fsu_is_inside(b, b) &&
+          fsu_is_inside(docs, SHELL_ROOT_INODE) && !fsu_is_inside(docs, b));
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -494,6 +533,7 @@ int main(int argc, char **argv) {
     buffer_cases();
     reader_cases();
     proc_cases();
+    fsutil_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
