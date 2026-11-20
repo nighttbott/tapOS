@@ -60,4 +60,7 @@ void fsu_error(struct ShellIO *io, const char *cmd, const char *path, const char
 /* True for "." and "..". */
 bool fsu_is_dot(const char *name, uint32_t len);
 
+/* Commands, registered in the table in user/shell.c. */
+int cmd_cd(int argc, char **argv, struct ShellIO *io);
+
 #endif

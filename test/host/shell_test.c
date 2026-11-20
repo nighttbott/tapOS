@@ -519,6 +519,34 @@ static void fsutil_cases(void) {
           fsu_is_inside(docs, SHELL_ROOT_INODE) && !fsu_is_inside(docs, b));
 }
 
+static void cd_cases(void) {
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+    uint32_t a = child_inode(docs, "a");
+
+    check("H24", "cd into a folder", run_real("cd docs/a") == 0 && mock_output_len == 0 &&
+          shell_cwd_inode() == a && strcmp(shell_cwd_path(), "/docs/a") == 0);
+    run_real("cd ..");
+    check("H24", "cd .. goes up", shell_cwd_inode() == docs && strcmp(shell_cwd_path(), "/docs") == 0);
+    reset_output();
+    shell_print_prompt();
+    check_output("H24", "prompt follows cd", "tapOS:/docs$ ");
+    run_real("cd");
+    check("H24", "cd alone goes to root", shell_cwd_inode() == SHELL_ROOT_INODE &&
+          strcmp(shell_cwd_path(), "/") == 0);
+    run_real("cd /docs/a/b/../..");
+    check("H24", "absolute path with ..", shell_cwd_inode() == docs);
+    run_real("cd /");
+    check("H24", "cd / ", shell_cwd_inode() == SHELL_ROOT_INODE);
+
+    check("H25", "missing folder fails", run_real("cd nothing") != 0 &&
+          strcmp(mock_output, "cd: nothing: no such directory\n") == 0 &&
+          shell_cwd_inode() == SHELL_ROOT_INODE);
+    run_real("cd tail");
+    check_output("H25", "file is not a folder", "cd: tail: not a directory\n");
+    run_real("cd a b");
+    check_output("H25", "two arguments", "usage: cd [DIR]\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -534,6 +562,7 @@ int main(int argc, char **argv) {
     reader_cases();
     proc_cases();
     fsutil_cases();
+    cd_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
