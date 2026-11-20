@@ -33,5 +33,9 @@ echo
 status=$?
 
 echo
+echo "== fsck after every shell command"
+python3 test/host/fsck.py "$OUT/shell_after.img" || status=1
+
+echo
 [ $status -eq 0 ] && echo "ALL SHELL TESTS PASSED" || echo "SOME SHELL TESTS FAILED"
 exit $status
