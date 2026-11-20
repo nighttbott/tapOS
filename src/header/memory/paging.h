@@ -19,6 +19,7 @@
 #define KERNEL_RESERVED_PAGE_FRAME_COUNT (0x400000u / PAGE_FRAME_SIZE)
 #define RECURSIVE_PAGE_TABLES_VIRTUAL_ADDRESS 0xFFC00000u
 #define RECURSIVE_PAGE_DIRECTORY_INDEX 1023u
+#define PAGING_DIRECTORY_TABLE_MAX_COUNT 32u
 
 #define PHYSICAL_MEMORY_TOP_HOLE 0x20000u
 
@@ -104,6 +105,11 @@ struct PageTable *paging_get_page_table(struct PageDirectory *page_dir, uint32_t
 
 struct PageTableEntry *paging_get_page_table_entry(struct PageDirectory *page_dir, void *virtual_addr);
 
+/* Process directories share the higher-half mapping and own all user entries.
+ * Switching and teardown require interrupts disabled on the current CPU. */
+struct PageDirectory *paging_create_new_page_directory(void);
+bool paging_free_page_directory(struct PageDirectory *page_dir);
+void paging_use_page_directory(struct PageDirectory *page_dir);
 struct PageDirectory *paging_get_current_page_directory_addr(void);
 
 /**
