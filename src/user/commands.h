@@ -96,5 +96,6 @@ int cmd_mkdir(int argc, char **argv, struct ShellIO *io);
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
 int cmd_rm(int argc, char **argv, struct ShellIO *io);
 int cmd_cp(int argc, char **argv, struct ShellIO *io);
+int cmd_mv(int argc, char **argv, struct ShellIO *io);
 
 #endif

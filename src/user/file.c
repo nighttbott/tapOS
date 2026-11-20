@@ -3,7 +3,7 @@
 #include "user/commands.h"
 #include "user/syscall.h"
 
-/* File commands: cat, cp, rm. */
+/* File commands: cat, cp, rm, mv. */
 
 /* Writes each file in order. With no file it passes the pipeline input through, like UNIX cat. */
 int cmd_cat(int argc, char **argv, struct ShellIO *io) {
@@ -214,6 +214,64 @@ int cmd_cp(int argc, char **argv, struct ShellIO *io) {
             ok = put_file(io, "cp", argv[i], &src, &dest);
         }
         if (!ok) {
+            status = 1;
+        }
+    }
+    return status;
+}
+
+/*
+ * mv SOURCE DEST, or mv SOURCE... FOLDER; renames as well as moves. There is no rename syscall,
+ * so the source is copied with cp's code and removed only after the copy fully succeeded.
+ */
+int cmd_mv(int argc, char **argv, struct ShellIO *io) {
+    const char *dest_path = argv[argc - 1];
+    bool many = argc > 3;
+    int status = 0;
+
+    if (argc < 3) {
+        shell_out_str(io, "usage: mv SOURCE... DEST\n");
+        return 1;
+    }
+    for (int i = 1; i < argc - 1; i++) {
+        struct FsuTarget src;
+        static struct FsuDest dest;
+        const char *error;
+        uint32_t existing;
+        bool ok;
+        int32_t code;
+
+        if (!find_source(io, "mv", "move", argv[i], &src)) {
+            status = 1;
+            continue;
+        }
+        error = fsu_destination(dest_path, src.name, many, &dest);
+        if (error != NULL) {
+            fsu_error(io, "mv", dest_path, error);
+            return 1;
+        }
+        if (fsu_lookup(dest.parent, dest.name, &existing, NULL) == 0 && existing == src.inode) {
+            fsu_error(io, "mv", argv[i], "source and destination are the same");
+            status = 1;
+            continue;
+        }
+        if (src.type == EXT2_FT_DIR) {
+            // The copy gets new inodes, so the shell would be left inside a deleted folder.
+            if (fsu_is_inside(shell_cwd_inode(), src.inode)) {
+                fsu_error(io, "mv", argv[i], "is the current directory or above it");
+                status = 1;
+                continue;
+            }
+            ok = put_tree(io, "mv", argv[i], &src, &dest);
+            code = ok ? fsu_remove_tree(src.parent, src.name) : 0;
+        } else {
+            ok = put_file(io, "mv", argv[i], &src, &dest);
+            code = ok ? fsu_remove(src.parent, src.name, false) : 0;
+        }
+        if (!ok) {
+            status = 1;
+        } else if (code != 0) {
+            fsu_error(io, "mv", argv[i], "copied, but the original could not be removed");
             status = 1;
         }
     }

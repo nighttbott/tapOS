@@ -794,6 +794,68 @@ static void cp_cases(void) {
     check_output("H37", "root", "cp: /: cannot copy the root directory\n");
 }
 
+static void mv_cases(void) {
+    static char back[65536];
+    uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
+    uint32_t moved;
+
+    check("H38", "rename a file", run_real("mv notes2 renamed") == 0 && mock_output_len == 0 &&
+          child_inode(1, "notes2") == 0 && file_bytes(1, "renamed", back, sizeof(back)) == 10 &&
+          memcmp(back, "one\ntwo x\n", 10) == 0);
+    run_real("mv renamed box");
+    check("H38", "move into a folder", child_inode(1, "renamed") == 0 &&
+          child_inode(box, "renamed") != 0);
+    run_real("mv box/renamed /docs/a/again");
+    check("H38", "move and rename across folders", child_inode(box, "renamed") == 0 &&
+          file_bytes(child_inode(child_inode(1, "docs"), "a"), "again", back, sizeof(back)) == 10);
+    write_file(SHELL_ROOT_INODE, "m1", "m1", 2);
+    write_file(SHELL_ROOT_INODE, "m2", "m2", 2);
+    run_real("mv m1 m2 box");
+    check("H38", "several sources", child_inode(box, "m1") != 0 && child_inode(box, "m2") != 0 &&
+          child_inode(1, "m1") == 0 && child_inode(1, "m2") == 0);
+    write_file(SHELL_ROOT_INODE, "m1", "new", 3);
+    run_real("mv m1 box/m1");
+    check("H38", "replaces an existing file", file_bytes(box, "m1", back, sizeof(back)) == 3 &&
+          child_inode(1, "m1") == 0);
+
+    check("H39", "rename a folder", run_real("mv tree moved") == 0 && mock_output_len == 0 &&
+          child_inode(1, "tree") == 0);
+    moved = child_inode(1, "moved");
+    check("H39", "content follows", moved != 0 && child_inode(moved, "top") != 0 &&
+          child_inode(child_inode(child_inode(moved, "sub"), "deep"), "leaf") != 0);
+    run_real("mv moved box");
+    check("H39", "folder into a folder", child_inode(1, "moved") == 0 &&
+          child_inode(child_inode(box, "moved"), "top") != 0);
+    run_real("cd box/moved/sub");
+    check("H39", "moved folder can be entered", strcmp(shell_cwd_path(), "/box/moved/sub") == 0);
+    run_real("cd ../..");
+    check("H39", ".. of the moved folder is its new parent", shell_cwd_inode() == box);
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+
+    run_real("mv box box/moved");
+    check_output("H40", "into itself", "mv: box: cannot put a directory inside itself\n");
+    check("H40", "source kept", child_inode(1, "box") == box);
+    shell_cwd_set(box, "/box");
+    run_real("mv /box /other");
+    check_output("H40", "folder holding the CWD", "mv: /box: is the current directory or above it\n");
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("mv empty .");
+    check_output("H40", "same place", "mv: empty: source and destination are the same\n");
+    run_real("mv box docs/a/again");
+    check_output("H40", "folder onto a file", "mv: docs/a/again: already exists\n");
+    run_real("mv empty docs");
+    check("H40", "file moves into folder docs", child_inode(child_inode(1, "docs"), "empty") != 0 &&
+          child_inode(1, "empty") == 0);
+    run_real("mv nothing x");
+    check_output("H40", "missing source", "mv: nothing: not found\n");
+    run_real("mv tail nothing/x");
+    check_output("H40", "missing destination", "mv: nothing/x: no such directory\n");
+    run_real("mv / x");
+    check_output("H40", "root", "mv: /: cannot move the root directory\n");
+    run_real("mv tail");
+    check_output("H40", "one operand", "usage: mv SOURCE... DEST\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -815,6 +877,7 @@ int main(int argc, char **argv) {
     cat_cases();
     rm_cases();
     cp_cases();
+    mv_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
