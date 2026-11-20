@@ -316,6 +316,13 @@ static void grep_cases(void) {
     run("grep needle exact");
     check_output("H11", "file of exactly 16 KiB", "needle\n");
 
+    static char bigger[20000];
+    memset(bigger, 'a', sizeof(bigger));
+    memcpy(bigger + sizeof(bigger) - 7, "\nneedle", 7);
+    write_file(SHELL_ROOT_INODE, "grep-large", bigger, sizeof(bigger));
+    run("grep needle grep-large");
+    check_output("H11", "file larger than the pipeline buffer", "needle\n");
+
     run("fruit | grep an");
     check_output("H12", "pipeline into grep", "banana\n");
     run("fruit | pass | pass | grep rr");
@@ -341,9 +348,9 @@ static void grep_cases(void) {
     run("grep x nothing/file");
     check_output("H14", "parent missing", "grep: nothing/file: not found\n");
     run("grep x docs");
-    check_output("H14", "folder", "grep: docs: not a file\n");
+    check_output("H14", "folder", "grep: docs: is a directory\n");
     run("grep x s71680");
-    check_output("H14", "file over 16 KiB", "grep: s71680: file too large\n");
+    check_output("H14", "file over 64 KiB", "grep: s71680: file too large\n");
 }
 
 static void buffer_cases(void) {
@@ -378,8 +385,8 @@ static void reader_cases(void) {
     long_input[sizeof(long_input) - 1] = '\0';
     reset_output();
     mock_input = long_input;
-    shell_read_line(line);
-    check("H17", "line stops at SHELL_LINE_MAX", strlen(line) == SHELL_LINE_MAX - 1);
+    check("H17", "line that exceeds SHELL_LINE_MAX is rejected",
+          !shell_read_line(line) && strstr(mock_output, "shell: input line too long\n") != NULL);
 }
 
 /* Runs a line through the real command table, like the REPL does. */
@@ -915,17 +922,20 @@ static void find_cases(void) {
 
 /* Disk full in the middle of cp -r / mv: the partial copy is removed and the source stays. */
 static void full_disk_cases(void) {
-    static char chunk[60000];
+    static char chunk[FSU_FILE_MAX];
     char name[16];
+    char old_contents[3];
     int files = 0;
     uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
 
     run_real("mkdir fill");
     memset(chunk, 'f', sizeof(chunk));
+    write_file(1, "replace-src", chunk, sizeof(chunk));
+    write_file(1, "replace-dst", "old", 3);
     for (; files < 200; files++) {
         struct EXT2DriverRequest request = {
             .buf = chunk, .name = name, .parent_inode = child_inode(1, "fill"),
-            .buffer_size = sizeof(chunk),
+            .buffer_size = 60000,
         };
 
         snprintf(name, sizeof(name), "f%d", files);
@@ -942,6 +952,16 @@ static void full_disk_cases(void) {
     check("H43", "mv fails and keeps the source", run_real("mv box boxmoved") != 0 &&
           child_inode(1, "boxmoved") == 0 && child_inode(1, "box") == box &&
           child_inode(box, "moved") != 0);
+
+    check("H44", "failed cp preserves the existing destination on a full disk",
+          run_real("cp replace-src replace-dst") != 0 &&
+          file_bytes(1, "replace-dst", old_contents, sizeof(old_contents)) == 3 &&
+          memcmp(old_contents, "old", 3) == 0);
+    check("H44", "failed mv preserves source and existing destination on a full disk",
+          run_real("mv replace-src replace-dst") != 0 &&
+          child_inode(1, "replace-src") != 0 &&
+          file_bytes(1, "replace-dst", old_contents, sizeof(old_contents)) == 3 &&
+          memcmp(old_contents, "old", 3) == 0);
 
     check("H43", "space comes back with rm -r", run_real("rm -r fill") == 0 &&
           run_real("cp -r box boxcopy") == 0 && child_inode(child_inode(1, "boxcopy"), "moved") != 0);

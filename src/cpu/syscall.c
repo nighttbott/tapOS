@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "header/cpu/syscall.h"
 #include "header/driver/keyboard.h"
@@ -30,6 +31,12 @@ static bool syscall_validate_user_range(const void *address, uint32_t size,
     first &= ~(PAGE_FRAME_SIZE - 1u);
     last &= ~(PAGE_FRAME_SIZE - 1u);
     while (true) {
+        const struct PageDirectoryEntry *directory_entry = &page_dir->table[first >> 22];
+        if (!directory_entry->flag.present_bit || !directory_entry->flag.us_bit ||
+            directory_entry->flag.use_pagesize_4_mb ||
+            (writable && !directory_entry->flag.write_bit)) {
+            return false;
+        }
         struct PageTableEntry *entry =
             paging_get_page_table_entry(page_dir, (void *)first);
         if (entry == NULL || !entry->flag.present_bit || !entry->flag.us_bit ||
@@ -96,7 +103,13 @@ static int32_t syscall_copy_request(uint32_t user_request,
                                      false)) {
         return -1;
     }
-    memcpy(request, (const void *)user_request, sizeof(*request));
+    uint8_t directory_flag;
+    const uint8_t *source = (const uint8_t *)user_request;
+    memcpy(&directory_flag, source + offsetof(struct EXT2DriverRequest, is_directory), 1);
+    if (directory_flag > 1) {
+        return -1;
+    }
+    memcpy(request, source, sizeof(*request));
     if (request->name_len == 0 ||
         !syscall_validate_user_range(request->name, request->name_len, false)) {
         return -1;

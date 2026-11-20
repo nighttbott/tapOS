@@ -90,19 +90,18 @@ static void exception_panic(const struct InterruptFrame *frame) {
     }
 }
 
-void main_interrupt_handler(struct InterruptFrame frame) {
-    if (frame.int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame.int_stack.error_code))
+void main_interrupt_handler(struct InterruptFrame *frame) {
+    if (frame->int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame->int_stack.error_code))
         return;
-    if (frame.int_number < 32U){
-        exception_panic(&frame);
-    }
-    switch (frame.int_number) {
-        case PIC1_OFFSET + IRQ_KEYBOARD :
+    if (frame->int_number < 32U)
+        exception_panic(frame);
+
+    switch (frame->int_number) {
+        case PIC1_OFFSET + IRQ_KEYBOARD:
             keyboard_isr();
             break;
-        case SYSCALL_VECTOR :
-            // frame lives on the stack popad reads, so the EAX result reaches Ring 3
-            syscall_dispatch(&frame);
+        case SYSCALL_VECTOR:
+            syscall_dispatch(frame);
             break;
     }
 }

@@ -43,6 +43,12 @@ void mem_suite_frames(struct FsTestContext *ctx) {
             intact = *(volatile uint32_t *) page_addr(page) == page && intact;
         fs_test_check(ctx, "M04", "pages do not share a frame", intact, 1, intact);
 
+        uint32_t free_before_duplicate = page_manager_state.free_page_frame_count;
+        bool duplicate_refused = !paging_allocate_user_page_frame(page_dir, (void *) page_addr(1));
+        fs_test_check(ctx, "M10", "duplicate allocation leaves data and frame count intact",
+                      duplicate_refused && *(volatile uint32_t *) page_addr(1) == 1 &&
+                      page_manager_state.free_page_frame_count == free_before_duplicate, 1, duplicate_refused);
+
         bool replaced = paging_allocate_user_page_frame(page_dir, (void *) page_addr(pages));
         fs_test_check(ctx, "M05", "full memory replaces a page", replaced, 1, replaced);
 
@@ -50,8 +56,8 @@ void mem_suite_frames(struct FsTestContext *ctx) {
         for (uint32_t page = 0; page <= pages; page++)
             freed = paging_free_user_page_frame(page_dir, (void *) page_addr(page)) && freed;
         fs_test_check(ctx, "M06", "every page can be freed", freed, 1, freed);
-        fs_test_check(ctx, "M07", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before - 1u,
-                      (int32_t) free_frames_before - 1, (int32_t) page_manager_state.free_page_frame_count);
+        fs_test_check(ctx, "M07", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before,
+                      (int32_t) free_frames_before, (int32_t) page_manager_state.free_page_frame_count);
     }
 
     fs_test_check(ctx, "M08", "kernel address is refused", !paging_allocate_user_page_frame(page_dir, (void *) KERNEL_VIRTUAL_ADDRESS_BASE), 1, 1);
@@ -127,16 +133,25 @@ void mem_suite_swap(struct FsTestContext *ctx) {
     fs_test_check(ctx, "S04", "every page can be freed", freed, 1, freed);
     fs_test_check(ctx, "S05", "no swap slot leaked", swap_manager.free_count == PAGE_FRAME_ON_SWAP_MAX_COUNT,
                   PAGE_FRAME_ON_SWAP_MAX_COUNT, (int32_t) swap_manager.free_count);
-    // One frame stays with the page table of this test
-    fs_test_check(ctx, "S06", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before - 1u,
-                  (int32_t) free_frames_before - 1, (int32_t) page_manager_state.free_page_frame_count);
+    fs_test_check(ctx, "S06", "no frame leaked", page_manager_state.free_page_frame_count == free_frames_before,
+                  (int32_t) free_frames_before, (int32_t) page_manager_state.free_page_frame_count);
 
     // RAM and swap both full: allocation has to fail, not overwrite a slot
     uint32_t capacity = free_frames_before - 1u + PAGE_FRAME_ON_SWAP_MAX_COUNT;
     uint32_t allocated = 0;
-    while (paging_allocate_user_page_frame(page_dir, (void *) page_addr(allocated)))
+    while (paging_allocate_user_page_frame(page_dir, (void *) page_addr(allocated))) {
+        *(volatile uint32_t *) page_addr(allocated) = allocated + 1u;
         allocated++;
+    }
     fs_test_check(ctx, "S07", "allocation stops when swap is full", allocated == capacity, (int32_t) capacity, (int32_t) allocated);
+
+    bool full_swap_read = allocated == capacity;
+    for (uint32_t page = 0; page < allocated; page++) {
+        if (*(volatile uint32_t *) page_addr(page) != page + 1u)
+            full_swap_read = false;
+    }
+    fs_test_check(ctx, "S09", "pages can be restored with both RAM and swap full",
+                  full_swap_read, 1, full_swap_read);
 
     freed = true;
     for (uint32_t page = 0; page < allocated; page++)

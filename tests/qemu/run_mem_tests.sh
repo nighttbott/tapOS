@@ -8,7 +8,7 @@ kernel_c_sources=$(make --no-print-directory -s kernel-c-sources) || exit 2
 
 MB=${1:-6}
 SUITE=${2:-mem_suite_frames}
-OUT=bin/mem-test-$MB
+OUT=bin/mem-test-$MB/$SUITE
 CFLAGS="-fshort-wchar -g -Wall -Wextra -Werror -nostdlib -fno-stack-protector -nostartfiles \
         -nodefaultlibs -ffreestanding -m32 -c -Isrc -Itests/common -Itests/qemu -DFS_TEST_SKIP_FULL_DISK \
         -DSYSTEM_MEMORY_MB=$MB -DTAPOS_TEST_SUITE=$SUITE -DTAPOS_TEST_NAME=\"mem$MB\""

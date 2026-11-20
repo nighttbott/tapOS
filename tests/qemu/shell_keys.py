@@ -1,5 +1,5 @@
 """Boots tapOS with the real shell, types commands, and checks the screen.
-python3 shell_keys.py <iso> <disk> <out dir>"""
+python3 shell_keys.py <iso> <disk> <out dir> <RAM in MiB>"""
 import re
 import sys
 import time
@@ -26,7 +26,7 @@ def fs_run(shell, line, timeout=30.0):
     return None
 
 
-shell = QemuShell(*sys.argv[1:4])
+shell = QemuShell(*sys.argv[1:4], memory_mb=int(sys.argv[4]), console_rows=25)
 t = Checks()
 try:
     t.check("Q01", "boot shows the prompt", shell.wait_for("tapOS:/$", 20))
@@ -44,9 +44,9 @@ try:
     t.check("Q07", "parser error", shell.run("grep a |") == ["shell: empty command in pipeline"])
     t.check("Q08", "prompt is back", shell.wait_for("tapOS:/$", 2))
 
-    # Commands of member E (Milestone 3), on the real kernel and disk
+    # Filesystem commands on the real kernel and disk
     t.check("Q09", "mkdir then ls", fs_run(shell, "mkdir docs") == [] and
-            fs_run(shell, "ls") == ["shell", "notes", "docs/"])
+            fs_run(shell, "ls") == ["shell", "notes", "imported/", "docs/"])
     fs_run(shell, "cd docs")
     t.check("Q10", "cd changes the prompt", shell.wait_for("tapOS:/docs$", 2))
     t.check("Q11", "cp then cat | grep", fs_run(shell, "cp /notes n2") == [] and
@@ -56,7 +56,7 @@ try:
     fs_run(shell, "cd ..")
     t.check("Q13", "find searches the whole disk", fs_run(shell, "find moved") == ["/docs/moved"])
     t.check("Q14", "rm -r removes the folder", fs_run(shell, "rm -r docs") == [] and
-            fs_run(shell, "ls") == ["shell", "notes"] and fs_run(shell, "find moved") == [])
+            fs_run(shell, "ls") == ["shell", "notes", "imported/"] and fs_run(shell, "find moved") == [])
     t.check("Q15", "command errors",
             fs_run(shell, "cd nothing") == ["cd: nothing: no such directory"] and
             fs_run(shell, "rm notes/x") == ["rm: notes/x: not found"])
@@ -67,11 +67,13 @@ finally:
     shell.close()
 
 # Second boot on the same disk: what the commands wrote must still be there.
-shell = QemuShell(*sys.argv[1:4])
+shell = QemuShell(*sys.argv[1:4], memory_mb=int(sys.argv[4]), console_rows=25)
 try:
     t.check("Q16", "boot again", shell.wait_for("tapOS:/$", 20))
-    t.check("Q16", "files survive a reboot", fs_run(shell, "ls keep") == ["n"] and
+    t.check("Q17", "files survive a reboot", fs_run(shell, "ls keep") == ["n"] and
             fs_run(shell, "grep gamma keep/n") == ["gamma"])
+    t.check("Q18", "inserter copies a directory recursively",
+            fs_run(shell, "grep nested imported/child/seed") == ["nested seed"])
 finally:
     shell.save_screen("screen-reboot.txt")
     shell.close()

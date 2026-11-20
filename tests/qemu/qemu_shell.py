@@ -1,7 +1,7 @@
 """Drives tapOS in QEMU: types through the monitor (sendkey) and reads the
 text screen at 0xB8000 (pmemsave). Shared by shell_keys.py and m4_keys.py."""
 import os
-import socket
+import select
 import subprocess
 import time
 
@@ -11,33 +11,39 @@ CONSOLE_ROWS = 24  # row 24 is the status row (clock)
 
 
 class QemuShell:
-    def __init__(self, iso, disk, out, memory_mb=128):
+    def __init__(self, iso, disk, out, memory_mb=128, console_rows=CONSOLE_ROWS):
         self.out = out
-        # Relative on purpose: the monitor reads "4000 /tmp/x" as the expression 4000 / tmp
+        self.console_rows = console_rows
         self.screen_path = os.path.join(out, "screen.bin")
-        sock_path = os.path.join(out, "monitor.sock")
-        self.qemu = subprocess.Popen(
-            ["qemu-system-i386", "-m", str(memory_mb), "-display", "none", "-no-reboot",
-             "-monitor", "unix:%s,server,nowait" % sock_path,
-             "-drive", "file=%s,format=raw,if=ide,index=0,media=disk" % disk,
-             "-cdrom", iso, "-boot", "order=d"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(100):
-            try:
-                self.monitor = socket.socket(socket.AF_UNIX)
-                self.monitor.connect(sock_path)
-                break
-            except OSError:
-                time.sleep(0.1)
-        self._read_prompt()  # the greeting ends with a prompt too; leaving it unread shifts every reply
+        self.log_path = os.path.join(out, "qemu.log")
+        with open(self.log_path, "w") as log:
+            self.qemu = subprocess.Popen(
+                ["qemu-system-i386", "-m", str(memory_mb), "-display", "none", "-no-reboot",
+                 "-monitor", "stdio", "-serial", "none",
+                 "-drive", "file=%s,format=raw,if=ide,index=0,media=disk" % disk,
+                 "-cdrom", iso, "-boot", "order=d"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log)
+        try:
+            self._read_prompt()
+        except BaseException:
+            self.close()
+            raise
 
     def _read_prompt(self):
         data = b""
+        deadline = time.monotonic() + 10
         while not data.endswith(b"(qemu) "):
-            data += self.monitor.recv(4096)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([self.qemu.stdout], [], [], remaining)[0]:
+                raise RuntimeError(f"Timed out waiting for QEMU monitor. See {self.log_path}")
+            chunk = os.read(self.qemu.stdout.fileno(), 4096)
+            if not chunk:
+                raise RuntimeError(f"QEMU monitor closed unexpectedly. See {self.log_path}")
+            data += chunk
 
     def command(self, text):
-        self.monitor.sendall((text + "\n").encode())
+        self.qemu.stdin.write((text + "\n").encode())
+        self.qemu.stdin.flush()
         self._read_prompt()
 
     def screen(self):
@@ -53,7 +59,7 @@ class QemuShell:
     def wait_for(self, text, timeout=10.0):
         end = time.time() + timeout
         while time.time() < end:
-            if any(text in row for row in self.screen()[:CONSOLE_ROWS]):
+            if any(text in row for row in self.screen()[:self.console_rows]):
                 return True
             time.sleep(0.2)
         return False
@@ -63,7 +69,7 @@ class QemuShell:
             key = KEYS.get(ch)
             if key is None:
                 key = ch if not ch.isupper() else "shift-" + ch.lower()
-            self.command("sendkey " + key)
+            self.command("sendkey " + key + " 35")
             time.sleep(0.05)
 
     def run(self, line, settle=0.5):
@@ -71,7 +77,7 @@ class QemuShell:
         The typed row is found by its ending, because output of another process may take the prompt's place."""
         self.type_text(line + "\n")
         time.sleep(settle)
-        rows = [r for r in self.screen()[:CONSOLE_ROWS] if r]
+        rows = [r for r in self.screen()[:self.console_rows] if r]
         typed = [i for i, r in enumerate(rows) if r.endswith(line)]
         if not typed:
             return None
@@ -82,8 +88,14 @@ class QemuShell:
             f.write("\n".join(self.screen()) + "\n")
 
     def close(self):
-        self.qemu.kill()
-        self.qemu.wait()  # QEMU locks the disk image until it is gone; a second boot needs it free
+        if self.qemu.poll() is None:
+            try:
+                self.qemu.communicate(b"quit\n", timeout=3)
+            except subprocess.TimeoutExpired:
+                self.qemu.kill()
+                self.qemu.communicate()
+        self.qemu.stdin.close()
+        self.qemu.stdout.close()
 
 
 class Checks:

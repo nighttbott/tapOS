@@ -42,7 +42,7 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 
 ### Milestone 2 — Filesystem
 
-- Disk driver ATA PIO dengan disk image raw berukuran 4 MiB.
+- Driver disk ATA PIO. Area filesystem menggunakan 4 MiB pertama dari disk image raw.
 - Filesystem EXT2 IF2130 Edition dengan ukuran blok 512 byte.
 - Inisialisasi filesystem baru dan pemuatan metadata filesystem yang sudah ada.
 - Operasi `read()`, `read_directory()`, `write()`, dan `delete()`.
@@ -63,7 +63,7 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 ### Milestone 3 — Shell
 
 - REPL dan CWD di `src/user-shell.c`; parser, pipeline, dan command ada di `src/user/`.
-- Command `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, dan `find`, termasuk bonus `cp -r` dan `rm -r` untuk folder.
+- Command `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`. Shell mendukung pipeline serta `cp -r` dan `rm -r` untuk folder.
 - Shell berjalan di Ring 3: syscall `int 0x30` tersambung, TSS aktif, dan kernel memuat `/shell` ke alamat 0.
 - Target `make user-shell` menghasilkan `bin/shell` dan `bin/shell_elf`. Target `make insert-shell` memasukkan shell melalui inserter host di `src/external/`.
 - Logika shell diuji di laptop (`bash tests/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash tests/qemu/run_shell_qemu.sh`).
@@ -110,17 +110,11 @@ Hasil build:
 
 ### 3. Menyiapkan disk
 
-Buat disk hanya jika belum tersedia:
-
 ```bash
-test -f bin/storage.bin || make disk
+make disk
 ```
 
-Disk disimpan pada `bin/storage.bin`. Filesystem diinisialisasi otomatis ketika disk baru digunakan.
-
-`make disk` membuat disk 5 MiB: 4 MiB untuk filesystem dan 1 MiB untuk swap. Disk 4 MiB yang sudah ada dapat diperbesar tanpa menghapus isinya dengan `truncate -s 5M bin/storage.bin`.
-
-**Jangan menjalankan `make disk` kembali pada disk yang ingin dipertahankan karena perintah tersebut membuat ulang disk image.**
+Target ini membuat `bin/storage.bin` dengan kapasitas 5 MiB jika file belum tersedia. Filesystem menggunakan 4 MiB pertama dan swap menggunakan 1 MiB berikutnya. Untuk migrasi image M2 berukuran 4 MiB yang sudah diverifikasi, buat salinan cadangan, lalu perluas image dengan `truncate -s 5M bin/storage.bin`. Target `make insert-shell` juga menyiapkan atau memeriksa disk sebelum menulis.
 
 ### 4. Memasukkan shell ke disk
 
@@ -134,11 +128,12 @@ Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. 
 
 ```bash
 qemu-system-i386 \
+    -m 128M \
     -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk \
-    -cdrom bin/OS2025.iso
+    -cdrom bin/OS2025.iso -boot order=d
 ```
 
-Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command yang tersedia: `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, `grep`, serta `exec`, `ps`, `kill` untuk Milestone 4. Pipeline dengan `|` sudah didukung. Detailnya ada di [docs/shell.md](docs/shell.md).
+Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command M3 mencakup `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`, dengan dukungan pipeline `|`. `exec`, `ps`, dan `kill` masih menunggu layanan proses kernel M4. Detailnya ada di [docs/shell.md](docs/shell.md).
 
 ### 6. Menjalankan dengan debugger
 
@@ -148,7 +143,7 @@ make run
 
 Target ini menjalankan QEMU dengan opsi `-s -S`. GDB server tersedia pada port `1234`, dan CPU menunggu debugger sebelum melanjutkan eksekusi.
 
-Gunakan perintah QEMU pada langkah 4 untuk menjalankan OS langsung tanpa menunggu debugger.
+Gunakan perintah QEMU pada langkah 5 untuk menjalankan OS langsung. Jika RAM diubah, gunakan nilai `SYSTEM_MEMORY_MB` yang sama pada build dan QEMU.
 
 ### 7. Membersihkan hasil build
 
@@ -226,7 +221,7 @@ Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. 
 - Input keyboard menggunakan buffer satu karakter.
 - Filesystem diakses melalui interface kernel dan kernel pengujian.
 - Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
-- `cat`, `cp`, dan `mv` membaca file sampai 64 KiB. `mv` bekerja dengan menyalin lalu menghapus, karena belum ada syscall rename.
-- Shell tidak mendukung tanda kutip, dan keluaran satu command dibatasi 16 KiB.
+- `cat`, `cp`, `mv`, dan `grep` membaca file sampai 64 KiB. Keluaran tiap tahap dibatasi 16 KiB. `mv` menyalin lalu menghapus sumber, sehingga memerlukan ruang untuk salinan.
+- Parser shell menerima paling banyak 127 karakter per baris dan belum mendukung tanda kutip.
 - Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.

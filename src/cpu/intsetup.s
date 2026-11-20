@@ -32,8 +32,14 @@ call_generic_handler:
     mov gs, ax
     pop eax
 
-    ; Call the C function
+    ; Pass the saved frame to C using a 16-byte aligned call stack.
+    cld
+    mov ebx, esp
+    and esp, -16
+    sub esp, 12
+    push ebx
     call main_interrupt_handler
+    mov esp, ebx
 
     ; Restore general-purpose & index register
     popad
@@ -52,7 +58,6 @@ call_generic_handler:
     ; [esp], [esp+4], [esp+8]
     ;   eip,   cs,    eflags
     ; Improper value will cause invalid return address & register
-    sti
     iret
 
 
