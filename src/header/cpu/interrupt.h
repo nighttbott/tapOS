@@ -145,4 +145,52 @@ void pic_remap(void);
 /* Called only by the assembly ISR. Changes to the saved frame survive iret. */
 void main_interrupt_handler(struct InterruptFrame *frame);
 
+/** x86 32-bit Task State Segment used on Ring 3 -> Ring 0 transitions. */
+struct TaskStateSegment {
+    uint32_t previous_task;
+    uint32_t esp0;
+    uint16_t ss0;
+    uint16_t reserved0;
+    uint32_t esp1;
+    uint16_t ss1;
+    uint16_t reserved1;
+    uint32_t esp2;
+    uint16_t ss2;
+    uint16_t reserved2;
+    uint32_t cr3;
+    uint32_t eip;
+    uint32_t eflags;
+    uint32_t eax;
+    uint32_t ecx;
+    uint32_t edx;
+    uint32_t ebx;
+    uint32_t esp;
+    uint32_t ebp;
+    uint32_t esi;
+    uint32_t edi;
+    uint16_t es;
+    uint16_t reserved3;
+    uint16_t cs;
+    uint16_t reserved4;
+    uint16_t ss;
+    uint16_t reserved5;
+    uint16_t ds;
+    uint16_t reserved6;
+    uint16_t fs;
+    uint16_t reserved7;
+    uint16_t gs;
+    uint16_t reserved8;
+    uint16_t ldt_selector;
+    uint16_t reserved9;
+    uint16_t debug_trap;
+    uint16_t io_map_base;
+} __attribute__((packed));
+
+extern struct TaskStateSegment _tss;
+
+void tss_set_kernel_stack(void *stack_top);
+
+_Static_assert(sizeof(struct TaskStateSegment) == 104,
+               "TaskStateSegment must be 104 bytes");
+
 #endif

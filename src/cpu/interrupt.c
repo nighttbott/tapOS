@@ -1,11 +1,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "header/cpu/portio.h"
+#include "header/cpu/gdt.h"
 #include "header/cpu/interrupt.h"
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
 #include "header/memory/swap.h"
 #include "header/cpu/syscall.h"
+
+struct TaskStateSegment _tss;
+
+void tss_set_kernel_stack(void *stack_top) {
+    _tss.esp0 = (uint32_t)stack_top;
+    _tss.ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR;
+}
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));

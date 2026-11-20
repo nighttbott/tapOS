@@ -1,5 +1,6 @@
 global loader                        ; the entry symbol for ELF
 global load_gdt                      ; load GDT table
+global enter_user_mode                ; switch to the prepared Ring 3 image
 global set_tss_register              ; set tss register to GDT entry
 extern kernel_setup                  ; kernel C entrypoint
 extern _paging_kernel_page_directory ; kernel page directory
@@ -105,3 +106,19 @@ set_tss_register:
     mov ax, 0x28 | 0 ; GDT TSS Selector, ring 0
     ltr ax
     ret
+
+; cdecl: [esp+4] is user EIP and [esp+8] is user ESP.
+enter_user_mode:
+    mov ecx, [esp+4]
+    mov edx, [esp+8]
+    mov ax, 0x23
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    push dword 0x23
+    push edx
+    push dword 0x202                   ; IF enabled, IOPL = 0, bit 1 set
+    push dword 0x1B
+    push ecx
+    iret

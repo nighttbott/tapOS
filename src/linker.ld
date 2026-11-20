@@ -15,4 +15,6 @@ SECTIONS {
     }
     _linker_kernel_virtual_addr_end  = .;
     _linker_kernel_physical_addr_end = . - 0xC0000000;
+    ASSERT(_linker_kernel_physical_addr_end <= 0x400000,
+           "kernel exceeds the 4 MiB bootstrap mapping")
 }

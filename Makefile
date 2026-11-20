@@ -118,13 +118,13 @@ shell-module-sources:
 # Host program, so read/write/delete are renamed away from the C library ones.
 inserter:
 	@mkdir -p $(OUTPUT_FOLDER)
-	@$(CC) -std=gnu11 -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \
+	@$(CC) -std=gnu11 -g -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \
 		$(SOURCE_FOLDER)/external/external-inserter.c $(SOURCE_FOLDER)/filesystem/ext2.c -o $(OUTPUT_FOLDER)/inserter
 
 insert-shell: user-shell inserter | disk
-	@./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/shell 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+	@./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/shell 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin
 
 insert-apps: user-apps inserter | disk
 	@for p in $(USER_PROGRAMS); do \
-		./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
+		./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
 	done

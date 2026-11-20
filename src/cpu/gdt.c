@@ -1,4 +1,5 @@
 #include "header/cpu/gdt.h"
+#include "header/cpu/interrupt.h"
 #include "header/stdlib/string.h"
 
 #define GDT_TSS_INDEX       5u
@@ -113,7 +114,7 @@ struct GlobalDescriptorTable _gdt = {
 /**
  * GDTR: operand loaded through `lgdt` by load_gdt() (see kernel-entrypoint.s).
  * `size` is the table limit (last valid byte offset), not the byte count.
- * The kernel runs identity-mapped, so &_gdt is a valid physical address.
+ * Paging is already active, so GDTR uses the higher-half linear address.
  */
 struct GDTR _gdt_gdtr = {
     .size    = sizeof(struct GlobalDescriptorTable) - 1,
@@ -128,11 +129,10 @@ _Static_assert(sizeof(struct GDTR) == 6,
                "GDTR must be exactly 6 bytes (2-byte limit + 4-byte base)");
 #endif
 
-struct TaskStateSegment _tss;
 static uint8_t tss_kernel_stack[TSS_KERNEL_STACK_SIZE]
     __attribute__((aligned(16)));
 
-static void set_tss_descriptor(void) {
+void gdt_install_tss(void) {
     struct SegmentDescriptor *descriptor = &_gdt.table[GDT_TSS_INDEX];
     uint32_t base = (uint32_t)&_tss;
     uint32_t limit = sizeof(_tss) - 1u;
@@ -154,38 +154,10 @@ static void set_tss_descriptor(void) {
     };
 }
 
-void tss_set_kernel_stack(void *stack_top) {
-    _tss.esp0 = (uint32_t)stack_top;
-    _tss.ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR;
-}
-
 void initialize_tss(void) {
     memset(&_tss, 0, sizeof(_tss));
     tss_set_kernel_stack(tss_kernel_stack + sizeof(tss_kernel_stack));
     _tss.io_map_base = sizeof(_tss);
-    set_tss_descriptor();
+    gdt_install_tss();
     set_tss_register();
-}
-
-__attribute__((noreturn)) void enter_user_mode(void *entry, void *stack_top) {
-    __asm__ volatile(
-        "mov %[user_data], %%ax\n\t"
-        "mov %%ax, %%ds\n\t"
-        "mov %%ax, %%es\n\t"
-        "mov %%ax, %%fs\n\t"
-        "mov %%ax, %%gs\n\t"
-        "pushl %[user_data]\n\t"
-        "pushl %[stack]\n\t"
-        "pushfl\n\t"
-        "orl $0x200, (%%esp)\n\t"
-        "pushl %[user_code]\n\t"
-        "pushl %[entry]\n\t"
-        "iret\n\t"
-        :
-        : [user_data] "i"(GDT_USER_DATA_SEGMENT_SELECTOR),
-          [user_code] "i"(GDT_USER_CODE_SEGMENT_SELECTOR),
-          [stack] "r"(stack_top), [entry] "r"(entry)
-        : "ax", "memory"
-    );
-    __builtin_unreachable();
 }

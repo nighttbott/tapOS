@@ -122,7 +122,9 @@ Target ini membuat `bin/storage.bin` dengan kapasitas 5 MiB jika file belum ters
 make insert-shell
 ```
 
-Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah.
+Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah. Target ini memakai `inserter -f` supaya binary shell lama bisa diganti.
+
+Untuk memasukkan file atau direktori lain, gunakan `bin/inserter <path> <parent_inode> bin/storage.bin`. Root memakai inode 1. Opsi `-f` mengizinkan penggantian file yang sudah ada. Direktori yang namanya bertabrakan ditolak. Konfigurasi **Inserter** di VS Code tersedia setelah `make disk user-shell`.
 
 ### 5. Menjalankan QEMU
 

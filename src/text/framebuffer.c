@@ -3,7 +3,6 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
 #include "header/text/framebuffer.h"
-#include "header/stdlib/string.h"
 #include "header/cpu/portio.h"
 
 void framebuffer_set_cursor(uint8_t r, uint8_t c) {

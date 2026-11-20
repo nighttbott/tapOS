@@ -55,9 +55,14 @@ static void syscall_write_char(char character) {
         console_col = 0;
         console_row++;
     } else if (character == '\b') {
-        if (console_col > 0) {
-            console_col--;
+        if (console_col == 0 && console_row == 0) {
+            return;
         }
+        if (console_col == 0) {
+            console_row--;
+            console_col = FRAMEBUFFER_WIDTH;
+        }
+        console_col--;
         framebuffer_write(console_row, console_col, ' ', 0x0F, 0x00);
     } else if (character >= ' ') {
         framebuffer_write(console_row, console_col, character, 0x0F, 0x00);

@@ -44,11 +44,21 @@ static void load_shell(void) {
         .name         = "shell",
         .name_len     = 5,
         .parent_inode = 1,
-        .buffer_size  = USER_IMAGE_SIZE,
+        .buffer_size  = 0,
         .is_directory = false,
     };
-    if (read(request) != 0)
-        halt_with_message("tapOS: /shell not found, run: make insert-shell");
+    int8_t status = read(request);
+    if (status == 0)
+        halt_with_message("tapOS: /shell is empty, run: make insert-shell");
+    if (status != 2)
+        halt_with_message("tapOS: cannot open /shell, run: make insert-shell");
+
+    request.buffer_size = USER_IMAGE_SIZE;
+    status = read(request);
+    if (status == 2)
+        halt_with_message("tapOS: /shell is larger than the mapped user image");
+    if (status != 0)
+        halt_with_message("tapOS: cannot load /shell");
 }
 
 void kernel_setup(void) {
