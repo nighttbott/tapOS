@@ -913,6 +913,41 @@ static void find_cases(void) {
     check_output("H42", "two arguments", "usage: find NAME\n");
 }
 
+/* Disk full in the middle of cp -r / mv: the partial copy is removed and the source stays. */
+static void full_disk_cases(void) {
+    static char chunk[60000];
+    char name[16];
+    int files = 0;
+    uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
+
+    run_real("mkdir fill");
+    memset(chunk, 'f', sizeof(chunk));
+    for (; files < 200; files++) {
+        struct EXT2DriverRequest request = {
+            .buf = chunk, .name = name, .parent_inode = child_inode(1, "fill"),
+            .buffer_size = sizeof(chunk),
+        };
+
+        snprintf(name, sizeof(name), "f%d", files);
+        request.name_len = (uint8_t)strlen(name);
+        if (sys_write_file(&request) != 0) {
+            break;
+        }
+    }
+    check("H43", "disk can be filled", files > 0 && files < 200);
+
+    check("H43", "cp -r fails on a full disk", run_real("cp -r box boxcopy") != 0 &&
+          strcmp(mock_output, "cp: box: copy failed (disk full?)\n") == 0);
+    check("H43", "no partial copy left", child_inode(1, "boxcopy") == 0);
+    check("H43", "mv fails and keeps the source", run_real("mv box boxmoved") != 0 &&
+          child_inode(1, "boxmoved") == 0 && child_inode(1, "box") == box &&
+          child_inode(box, "moved") != 0);
+
+    check("H43", "space comes back with rm -r", run_real("rm -r fill") == 0 &&
+          run_real("cp -r box boxcopy") == 0 && child_inode(child_inode(1, "boxcopy"), "moved") != 0);
+    run_real("rm -r boxcopy");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -936,6 +971,12 @@ int main(int argc, char **argv) {
     cp_cases();
     mv_cases();
     find_cases();
+    full_disk_cases();
     fs_test_sum(&ctx, "shell");
+    // run_shell_tests.sh runs fsck on this image: cp -r, rm -r and mv must not leak blocks or inodes
+    if (ram_disk_save("bin/host/shell_after.img") != 0) {
+        fprintf(stderr, "cannot save bin/host/shell_after.img\n");
+        return 1;
+    }
     return ctx.failed == 0 ? 0 : 1;
 }
