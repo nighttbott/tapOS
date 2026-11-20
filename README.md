@@ -63,6 +63,7 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 ### Milestone 3 — Shell
 
 - Pembaca baris, parser, state CWD, resolusi path, pipeline, dan `grep` di `src/user/`.
+- Command `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, dan `find`, termasuk bonus `cp -r` dan `rm -r` untuk folder.
 - Shell berjalan di Ring 3: syscall `int 0x30` tersambung, TSS aktif, dan kernel memuat `/shell` ke alamat 0.
 - Build program user (`make user-shell`) dan host inserter (`make insert-shell`).
 - Logika shell diuji di laptop (`bash test/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash test/qemu/run_shell_qemu.sh`).
@@ -137,7 +138,7 @@ qemu-system-i386 \
     -cdrom bin/OS2025.iso
 ```
 
-Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command yang tersedia baru `grep`, dan pipeline dengan `|` sudah didukung. Detailnya ada di [docs/shell.md](docs/shell.md).
+Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command yang tersedia: `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, `grep`, serta `exec`, `ps`, `kill` untuk Milestone 4. Pipeline dengan `|` sudah didukung. Detailnya ada di [docs/shell.md](docs/shell.md).
 
 ### 6. Menjalankan dengan debugger
 
@@ -225,7 +226,7 @@ Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. 
 - Input keyboard menggunakan buffer satu karakter.
 - Filesystem diakses melalui interface kernel dan kernel pengujian.
 - Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
-- Baru `grep` yang tersedia di shell; `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, dan `find` belum ada.
+- `cat`, `cp`, dan `mv` membaca file sampai 64 KiB. `mv` bekerja dengan menyalin lalu menghapus, karena belum ada syscall rename.
 - Shell tidak mendukung tanda kutip, dan keluaran satu command dibatasi 16 KiB.
 - Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.
