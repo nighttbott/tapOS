@@ -6,6 +6,7 @@
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
 #include "header/memory/swap.h"
+#include "header/process/process.h"
 #include "header/text/framebuffer.h"
 #include "header/stdlib/string.h"
 
@@ -199,6 +200,21 @@ void syscall_dispatch(struct InterruptFrame *frame) {
                 result = delete(request);
             }
             break;
+        case SYSCALL_EXEC: {
+            uint32_t *user_pid = (void *)frame->cpu.general.ecx;
+            uint32_t pid;
+            if (argument == 0 || user_pid == NULL ||
+                syscall_copy_request(argument, &request, false) != 0 ||
+                request.buffer_size != 0 ||
+                !syscall_validate_user_range(user_pid, sizeof(*user_pid), true)) {
+                result = PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT;
+                break;
+            }
+            result = process_create_user_process(request, &pid);
+            if (result == PROCESS_CREATE_SUCCESS)
+                *user_pid = pid;
+            break;
+        }
         case SYSCALL_READ_DIRECTORY_BLOCK:
             if (syscall_validate_user_range((void *)frame->cpu.general.edx, BLOCK_SIZE, true))
                 result = ext2_read_directory_block(argument, frame->cpu.general.ecx,
@@ -219,4 +235,5 @@ void syscall_dispatch(struct InterruptFrame *frame) {
     }
     syscall_unpin_pages();
     frame->cpu.general.eax = (uint32_t)result;
+    process_save_interrupt_context(frame);
 }

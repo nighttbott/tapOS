@@ -6,13 +6,7 @@
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
 #include "header/kernel-entrypoint.h"
-#include "header/driver/disk.h"
-#include "header/stdlib/string.h"
-#include "header/filesystem/ext2.h"
-#include "header/memory/paging.h"
-
-#define USER_IMAGE_SIZE  0x40000u
-#define USER_STACK_PAGES 4u
+#include "header/process/process.h"
 
 __attribute__((noreturn))
 static void halt_with_message(const char *text) {
@@ -20,39 +14,6 @@ static void halt_with_message(const char *text) {
         framebuffer_write(0, col, text[col], 0x0F, 0x00);
     while (true)
         __asm__ volatile("hlt");
-}
-
-static void load_shell(void) {
-    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
-    uint32_t stack_bottom = KERNEL_VIRTUAL_ADDRESS_BASE - USER_STACK_PAGES * PAGE_FRAME_SIZE;
-
-    for (uint32_t addr = 0; addr < USER_IMAGE_SIZE; addr += PAGE_FRAME_SIZE)
-        if (!paging_allocate_user_page_frame(page_dir, (void *) addr))
-            halt_with_message("tapOS: out of memory for the shell");
-    for (uint32_t addr = stack_bottom; addr < KERNEL_VIRTUAL_ADDRESS_BASE; addr += PAGE_FRAME_SIZE)
-        if (!paging_allocate_user_page_frame(page_dir, (void *) addr))
-            halt_with_message("tapOS: out of memory for the shell stack");
-
-    struct EXT2DriverRequest request = {
-        .buf          = (void *) 0,
-        .name         = "shell",
-        .name_len     = 5,
-        .parent_inode = 1,
-        .buffer_size  = 0,
-        .is_directory = false,
-    };
-    int8_t status = read(request);
-    if (status == 0)
-        halt_with_message("tapOS: /shell is empty, run: make insert-shell");
-    if (status != 2)
-        halt_with_message("tapOS: cannot open /shell, run: make insert-shell");
-
-    request.buffer_size = USER_IMAGE_SIZE;
-    status = read(request);
-    if (status == 2)
-        halt_with_message("tapOS: /shell is larger than the mapped user image");
-    if (status != 0)
-        halt_with_message("tapOS: cannot load /shell");
 }
 
 void kernel_setup(void) {
@@ -67,6 +28,18 @@ void kernel_setup(void) {
     initialize_tss();
     keyboard_state_activate();
 
-    load_shell();
-    enter_user_mode((void *) 0, (void *) KERNEL_VIRTUAL_ADDRESS_BASE);
+    __asm__ volatile("cli" : : : "memory");
+    process_initialize();
+    int32_t status = process_create_init();
+    if (status == PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY)
+        halt_with_message("tapOS: out of memory for /shell");
+    if (status == PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT)
+        halt_with_message("tapOS: /shell is empty or exceeds the user image limit");
+    if (status != PROCESS_CREATE_SUCCESS)
+        halt_with_message("tapOS: cannot load /shell, run: make insert-shell");
+
+    struct ProcessControlBlock *init = process_lookup(PROCESS_INIT_PID);
+    process_set_running(init);
+    paging_use_page_directory(init->context.page_directory_virtual_addr);
+    enter_user_mode((void *)init->context.eip, (void *)init->context.cpu.stack.esp);
 }
