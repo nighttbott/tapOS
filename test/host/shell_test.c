@@ -699,6 +699,101 @@ static void rm_cases(void) {
     check("H34", "unknown later stage deletes nothing", child_inode(SHELL_ROOT_INODE, "notes") != 0);
 }
 
+/* Reads a whole file by hand for comparisons; returns its size or -1. */
+static int file_bytes(uint32_t parent, const char *name, char *out, uint32_t capacity) {
+    const char *data;
+    uint32_t size;
+
+    if (fsu_read_file(parent, name, &data, &size) != 0 || size > capacity) {
+        return -1;
+    }
+    memcpy(out, data, size);
+    return (int)size;
+}
+
+static void cp_cases(void) {
+    static char big[40000];
+    static char back[65536];
+    static const char tail[] = { 'a', 'b', 0, 0, 0 };
+    uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
+    uint32_t tree;
+    uint32_t copy;
+
+    check("H35", "cp file to a new name", run_real("cp notes notes2") == 0 && mock_output_len == 0 &&
+          file_bytes(1, "notes2", back, sizeof(back)) == 25 &&
+          memcmp(back, "alpha\nbeta x\ngamma\n\nx last", 25) == 0);
+    run_real("cp tail box");
+    check("H35", "into a folder keeps the name, exact bytes",
+          file_bytes(box, "tail", back, sizeof(back)) == sizeof(tail) &&
+          memcmp(back, tail, sizeof(tail)) == 0);
+    run_real("cp /docs/inner notes2");
+    check("H35", "existing file is replaced", file_bytes(1, "notes2", back, sizeof(back)) == 10 &&
+          memcmp(back, "one\ntwo x\n", 10) == 0);
+    run_real("cp notes empty box/");
+    check("H35", "several sources into a folder", child_inode(box, "notes") != 0 &&
+          child_inode(box, "empty") != 0);
+    for (uint32_t i = 0; i < sizeof(big); i++) {
+        big[i] = (char)('a' + i % 26);
+    }
+    write_file(SHELL_ROOT_INODE, "large", big, sizeof(big));
+    run_real("cp large box/large");
+    check("H35", "40000 bytes (indirect blocks) copied",
+          file_bytes(box, "large", back, sizeof(back)) == (int)sizeof(big) &&
+          memcmp(back, big, sizeof(big)) == 0);
+    run_real("cp empty empty2");
+    check("H35", "empty file", file_bytes(1, "empty2", back, sizeof(back)) == 0);
+
+    run_real("mkdir tree tree/sub tree/sub/deep");
+    tree = child_inode(SHELL_ROOT_INODE, "tree");
+    write_file(tree, "top", "top", 3);
+    write_file(child_inode(child_inode(tree, "sub"), "deep"), "leaf", "leaf!", 5);
+    check("H36", "folder needs -r", run_real("cp tree t2") != 0 &&
+          strcmp(mock_output, "cp: tree: is a directory (use cp -r)\n") == 0 &&
+          child_inode(1, "t2") == 0);
+    check("H36", "cp -r copies the tree", run_real("cp -r tree t2") == 0 && mock_output_len == 0);
+    copy = child_inode(1, "t2");
+    check("H36", "copy is a new folder with the content", copy != 0 && copy != tree &&
+          file_bytes(copy, "top", back, sizeof(back)) == 3 &&
+          file_bytes(child_inode(child_inode(copy, "sub"), "deep"), "leaf", back, sizeof(back)) == 5 &&
+          memcmp(back, "leaf!", 5) == 0);
+    run_real("cd t2/sub/deep");
+    run_real("cd ../..");
+    check("H36", ".. inside the copy points into the copy", shell_cwd_inode() == copy);
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    check("H36", "original untouched", child_inode(tree, "top") != 0 &&
+          child_inode(child_inode(tree, "sub"), "deep") != 0);
+    run_real("cp -r tree box");
+    check("H36", "cp -r into a folder", child_inode(child_inode(box, "tree"), "sub") != 0);
+
+    run_real("cp -r tree tree/sub");
+    check_output("H37", "into itself", "cp: tree: cannot put a directory inside itself\n");
+    check("H37", "nothing created", child_inode(child_inode(tree, "sub"), "tree") == 0);
+    check("H37", "existing folder receives the copy", run_real("cp -r tree t2") == 0 &&
+          child_inode(child_inode(copy, "tree"), "top") != 0);
+    run_real("cp -r tree t2");
+    check_output("H37", "folder exists", "cp: t2/tree: already exists\n");
+    run_real("cp -r tree box");
+    check_output("H37", "folder in the way", "cp: box/tree: already exists\n");
+    run_real("cp notes notes");
+    check_output("H37", "same file", "cp: notes: source and destination are the same file\n");
+    run_real("cp notes .");
+    check_output("H37", "same file through the folder", "cp: notes: source and destination are the same file\n");
+    run_real("cp nothing x");
+    check_output("H37", "missing source", "cp: nothing: not found\n");
+    run_real("cp notes nothing/x");
+    check_output("H37", "missing destination folder", "cp: nothing/x: no such directory\n");
+    run_real("cp notes tail x");
+    check_output("H37", "several sources need a folder", "cp: x: no such directory\n");
+    run_real("cp notes tail empty");
+    check_output("H37", "several sources onto a file", "cp: empty: not a directory\n");
+    run_real("cp notes");
+    check_output("H37", "one operand", "usage: cp [-r] SOURCE... DEST\n");
+    run_real("cp -r .. x");
+    check_output("H37", "dot dot", "cp: ..: cannot copy '.' or '..'\n");
+    run_real("cp -r / x");
+    check_output("H37", "root", "cp: /: cannot copy the root directory\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -719,6 +814,7 @@ int main(int argc, char **argv) {
     mkdir_cases();
     cat_cases();
     rm_cases();
+    cp_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }

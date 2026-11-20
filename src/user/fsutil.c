@@ -258,3 +258,106 @@ int32_t fsu_remove_tree(uint32_t parent, const char *name) {
     }
     return remove_entry(parent, name, len, true);
 }
+
+int32_t fsu_write_file(uint32_t parent, const char *name, const void *data, uint32_t size,
+                       bool is_dir) {
+    struct EXT2DriverRequest request = {
+        .buf = (void *)data,
+        .name = (char *)name,
+        .name_len = (uint8_t)shell_strlen(name),
+        .parent_inode = parent,
+        .buffer_size = is_dir ? 0 : size,
+        .is_directory = is_dir,
+    };
+
+    return sys_write_file(&request);
+}
+
+static char copy_name[SHELL_NAME_MAX + 1];
+
+/*
+ * Copies the children of folder src into folder dst. The listing of src is read again only after
+ * a recursion, which reuses the listing buffer; offset stays valid because src does not change.
+ */
+static bool copy_children(uint32_t src, uint32_t dst, uint32_t depth) {
+    const uint8_t *table = NULL;
+    uint32_t offset = 0;
+
+    for (;;) {
+        struct FsuEntry entry;
+
+        if (table == NULL && (table = fsu_list(src)) == NULL) {
+            return false;
+        }
+        if (!fsu_next_entry(table, &offset, &entry)) {
+            return true;
+        }
+        memcpy(copy_name, entry.name, entry.name_len);
+        copy_name[entry.name_len] = '\0';
+
+        if (entry.type == EXT2_FT_DIR) {
+            uint32_t made;
+
+            if (depth >= FSU_DEPTH_MAX ||
+                fsu_write_file(dst, copy_name, NULL, 0, true) != 0 ||
+                fsu_lookup(dst, copy_name, &made, NULL) != 0 ||
+                !copy_children(entry.inode, made, depth + 1)) {
+                return false;
+            }
+            table = NULL;
+        } else if (entry.type == EXT2_FT_REG_FILE) {
+            const char *data;
+            uint32_t size;
+
+            if (fsu_read_file(src, copy_name, &data, &size) != 0 ||
+                fsu_write_file(dst, copy_name, data, size, false) != 0) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+}
+
+int32_t fsu_copy_tree(uint32_t src, uint32_t dst_parent, const char *name) {
+    int32_t code = fsu_write_file(dst_parent, name, NULL, 0, true);
+    uint32_t made;
+
+    if (code != 0) {
+        return code;
+    }
+    if (fsu_lookup(dst_parent, name, &made, NULL) != 0 || !copy_children(src, made, 1)) {
+        // Leave nothing half copied behind.
+        fsu_remove_tree(dst_parent, name);
+        return -1;
+    }
+    return 0;
+}
+
+const char *fsu_destination(const char *dest, const char *src_name, bool many,
+                            struct FsuDest *out) {
+    char absolute[SHELL_PATH_MAX];
+    uint32_t dest_len = shell_strlen(dest);
+    uint32_t name_len = shell_strlen(src_name);
+    struct FsuTarget existing;
+
+    if (shell_resolve_dir(dest, &out->parent, absolute) == 0) {
+        // An existing folder: the source keeps its name inside it.
+        memcpy(out->name, src_name, name_len + 1);
+        memcpy(out->shown, dest, dest_len);
+        if (dest_len > 0 && dest[dest_len - 1] != '/') {
+            out->shown[dest_len++] = '/';
+        }
+        memcpy(out->shown + dest_len, src_name, name_len + 1);
+        return NULL;
+    }
+    memcpy(out->shown, dest, dest_len + 1);
+    if (many) {
+        return fsu_stat(dest, &existing) == 0 ? "not a directory" : "no such directory";
+    }
+    if (shell_resolve_parent(dest, &out->parent, out->name) != 0 ||
+        fsu_is_dot(out->name, shell_strlen(out->name))) {
+        return "no such directory";
+    }
+    return NULL;
+}

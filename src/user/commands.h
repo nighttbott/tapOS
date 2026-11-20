@@ -22,6 +22,13 @@ struct FsuEntry {
     uint32_t    name_len;
 };
 
+/* Where cp or mv puts one source. */
+struct FsuDest {
+    uint32_t parent;
+    char     name[SHELL_NAME_MAX + 1];
+    char     shown[SHELL_PATH_MAX + SHELL_NAME_MAX + 2];  // path for messages
+};
+
 /* An existing file or folder found from a path typed by the user. */
 struct FsuTarget {
     uint32_t parent;                    // folder that holds the entry
@@ -60,6 +67,23 @@ int32_t fsu_remove(uint32_t parent, const char *name, bool is_dir);
 /* Deletes folder name with everything inside it. Returns the delete() code of the folder. */
 int32_t fsu_remove_tree(uint32_t parent, const char *name);
 
+/* Creates a file holding data, or an empty folder when is_dir. Returns the write() code. */
+int32_t fsu_write_file(uint32_t parent, const char *name, const void *data, uint32_t size,
+                       bool is_dir);
+/*
+ * Creates folder name in dst_parent with a copy of everything inside folder src. Returns the
+ * write() code for the new folder, or -1 when copying its content failed; nothing is left behind.
+ * The caller must make sure dst_parent does not lie inside src.
+ */
+int32_t fsu_copy_tree(uint32_t src, uint32_t dst_parent, const char *name);
+/*
+ * Destination of cp/mv for a source named src_name. An existing folder dest receives the source
+ * under its own name; otherwise dest names the new entry, which is only allowed for one source
+ * (many == false). Fills out->shown in both cases. Returns NULL, or the error about dest.
+ */
+const char *fsu_destination(const char *dest, const char *src_name, bool many,
+                            struct FsuDest *out);
+
 /* Writes "cmd: path: message\n". */
 void fsu_error(struct ShellIO *io, const char *cmd, const char *path, const char *message);
 /* True for "." and "..". */
@@ -71,5 +95,6 @@ int cmd_ls(int argc, char **argv, struct ShellIO *io);
 int cmd_mkdir(int argc, char **argv, struct ShellIO *io);
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
 int cmd_rm(int argc, char **argv, struct ShellIO *io);
+int cmd_cp(int argc, char **argv, struct ShellIO *io);
 
 #endif
