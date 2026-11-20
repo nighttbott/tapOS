@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
+#include "user/commands.h"
 #include "user/shell.h"
 #include "user/syscall.h"
 
@@ -7,6 +8,14 @@
 #define SHELL_DIR_BUFFER 16384u
 
 static const struct ShellCommand commands[] = {
+    { "cd", cmd_cd },
+    { "ls", cmd_ls },
+    { "mkdir", cmd_mkdir },
+    { "cat", cmd_cat },
+    { "cp", cmd_cp },
+    { "rm", cmd_rm },
+    { "mv", cmd_mv },
+    { "find", cmd_find },
     { "grep", cmd_grep },
     { "exec", cmd_exec },
     { "ps", cmd_ps },
