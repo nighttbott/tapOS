@@ -83,6 +83,7 @@ class QemuShell:
 
     def close(self):
         self.qemu.kill()
+        self.qemu.wait()  # QEMU locks the disk image until it is gone; a second boot needs it free
 
 
 class Checks:
