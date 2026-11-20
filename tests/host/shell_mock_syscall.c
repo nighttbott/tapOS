@@ -1,5 +1,5 @@
 #include <string.h>
-#include "user/syscall.h"
+#include "header/user/syscall.h"
 
 char mock_output[65536];
 uint32_t mock_output_len;

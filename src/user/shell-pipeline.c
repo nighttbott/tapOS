@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/shell.h"
-#include "user/syscall.h"
+#include "header/user/shell.h"
+#include "header/user/syscall.h"
 
 static void print(const char *text) {
     sys_write_text(text, shell_strlen(text));

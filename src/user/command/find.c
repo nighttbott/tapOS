@@ -1,6 +1,6 @@
 #include "header/stdlib/string.h"
-#include "user/commands.h"
-#include "user/syscall.h"
+#include "header/user/commands.h"
+#include "header/user/syscall.h"
 
 #define FIND_MAX_INODES (GROUPS_COUNT * INODES_PER_GROUP)
 

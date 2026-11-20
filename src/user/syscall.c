@@ -1,5 +1,5 @@
 #include "header/cpu/syscall.h"
-#include "user/syscall.h"
+#include "header/user/syscall.h"
 
 static inline int32_t sys_call(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx) {
     int32_t ret;

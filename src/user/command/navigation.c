@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/commands.h"
-#include "user/syscall.h"
+#include "header/user/commands.h"
+#include "header/user/syscall.h"
 
 static void not_a_folder(struct ShellIO *io, const char *cmd, const char *path) {
     struct FsuTarget target;

@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/commands.h"
-#include "user/syscall.h"
+#include "header/user/commands.h"
+#include "header/user/syscall.h"
 
 static uint8_t listing[FSU_DIR_BUFFER];
 static char file_buffer[FSU_FILE_MAX];

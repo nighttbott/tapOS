@@ -1,8 +1,8 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/commands.h"
-#include "user/shell.h"
-#include "user/syscall.h"
+#include "header/user/commands.h"
+#include "header/user/shell.h"
+#include "header/user/syscall.h"
 
 static const struct ShellCommand commands[] = {
     { "cd", cmd_cd },

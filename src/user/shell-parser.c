@@ -1,5 +1,5 @@
 #include <stddef.h>
-#include "user/shell.h"
+#include "header/user/shell.h"
 
 const char *shell_parse(char *line, struct ShellPipeline *pipeline) {
     struct ShellStage *stage = &pipeline->stages[0];

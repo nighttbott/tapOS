@@ -1,6 +1,6 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/commands.h"
+#include "header/user/commands.h"
 
 static bool contains(const char *line, uint32_t len, const char *pattern, uint32_t pattern_len) {
     for (uint32_t i = 0; i + pattern_len <= len; i++) {

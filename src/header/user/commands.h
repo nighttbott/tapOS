@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "user/shell.h"
+#include "header/user/shell.h"
 
 #define FSU_DIR_BUFFER 16384u
 #define FSU_FILE_MAX   65536u

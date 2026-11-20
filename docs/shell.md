@@ -2,13 +2,14 @@
 
 | File | Isi |
 | --- | --- |
-| `src/user/shell.h` | `ShellIO`, tipe command, API CWD, dan resolusi path |
+| `src/header/user/commands.h` | Deklarasi perintah dan fungsi filesystem yang dipakai bersama |
+| `src/header/user/shell.h` | `ShellIO`, tipe command, API CWD, dan resolusi path |
 | `src/user-shell.c` | REPL, pembaca baris, tabel command, CWD, resolusi path |
 | `src/user/shell-parser.c` | Memecah baris menjadi argumen dan tahap pipeline |
 | `src/user/shell-pipeline.c` | Dispatch dan buffer keluaran antar-tahap |
 | `src/user/command/` | Navigasi, operasi file, pencarian, dan command proses |
 | `src/user/fsutil.c` | Fungsi filesystem yang dipakai bersama oleh perintah shell |
-| `src/user/syscall.h`, `syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
+| `src/header/user/syscall.h`, `src/user/syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
 | `tests/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
 | `tests/host/shell_test.c` | Test H01–H46 |
 | `tests/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
@@ -116,7 +117,7 @@ Bila FILE diberikan, masukan dari pipeline diabaikan. Pencocokan memakai substri
 ## Panduan menulis command (untuk E)
 
 ```c
-// src/user/commands.h
+// src/header/user/commands.h
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
 
 // src/user-shell.c, tambahkan satu baris di tabel commands

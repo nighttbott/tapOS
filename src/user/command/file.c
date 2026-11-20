@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/commands.h"
-#include "user/syscall.h"
+#include "header/user/commands.h"
+#include "header/user/syscall.h"
 
 int cmd_cat(int argc, char **argv, struct ShellIO *io) {
     int status = 0;

@@ -1,6 +1,6 @@
 #include <stddef.h>
-#include "user/shell.h"
-#include "user/syscall.h"
+#include "header/user/shell.h"
+#include "header/user/syscall.h"
 
 #define PS_MAX 16
 
