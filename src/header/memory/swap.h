@@ -40,7 +40,8 @@ bool swap_in(struct PageDirectory *page_dir, void *virtual_addr);
 bool swap_out(struct PageDirectory *page_dir, void *virtual_addr);
 
 /**
- * Page replacement: move one page from memory into swap
+ * Page replacement: move one page from memory into swap, from any page directory.
+ * Pages of an inactive directory are reached by switching CR3 for a moment
  * @return Will return true if a frame was freed
  */
 bool swap_replace_page(void);
