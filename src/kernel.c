@@ -10,10 +10,10 @@
 #include "header/stdlib/string.h"
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
+#include "header/memory/process_memory.h"
 
 // Must match the ASSERT in src/user/user-linker.ld: code, data and .bss of the shell.
 #define USER_IMAGE_SIZE  0x40000u
-#define USER_STACK_PAGES 4u
 
 __attribute__((noreturn))
 static void halt_with_message(const char *text) {
@@ -24,21 +24,13 @@ static void halt_with_message(const char *text) {
 }
 
 /*
- * Maps the shell image and stack up front: syscalls only accept present pages,
- * so .bss buffers cannot rely on the page fault handler. New pages are zeroed,
- * which also clears .bss.
+ * The shell gets its own address space from the M4 loader, the same path every process takes.
+ * The kernel page directory keeps only the kernel half. Process table and scheduler (members A
+ * and C) still have to record it as process 0.
  */
+static struct ProcessMemory shell_memory;
+
 static void load_shell(void) {
-    struct PageDirectory *page_dir = paging_get_current_page_directory_addr();
-    uint32_t stack_bottom = KERNEL_VIRTUAL_ADDRESS_BASE - USER_STACK_PAGES * PAGE_FRAME_SIZE;
-
-    for (uint32_t addr = 0; addr < USER_IMAGE_SIZE; addr += PAGE_FRAME_SIZE)
-        if (!paging_allocate_user_page_frame(page_dir, (void *) addr))
-            halt_with_message("tapOS: out of memory for the shell");
-    for (uint32_t addr = stack_bottom; addr < KERNEL_VIRTUAL_ADDRESS_BASE; addr += PAGE_FRAME_SIZE)
-        if (!paging_allocate_user_page_frame(page_dir, (void *) addr))
-            halt_with_message("tapOS: out of memory for the shell stack");
-
     struct EXT2DriverRequest request = {
         .buf          = (void *) 0,
         .name         = "shell",
@@ -47,8 +39,16 @@ static void load_shell(void) {
         .buffer_size  = USER_IMAGE_SIZE,
         .is_directory = false,
     };
-    if (read(request) != 0)
-        halt_with_message("tapOS: /shell not found, run: make insert-shell");
+
+    switch (process_memory_load(&shell_memory, request)) {
+        case PROCESS_LOAD_SUCCESS:
+            break;
+        case PROCESS_LOAD_FAIL_FS_READ_FAILURE:
+            halt_with_message("tapOS: /shell not found, run: make insert-shell");
+        default:
+            halt_with_message("tapOS: out of memory for the shell");
+    }
+    paging_use_page_directory(shell_memory.page_dir);
 }
 
 void kernel_setup(void) {
@@ -65,5 +65,5 @@ void kernel_setup(void) {
     keyboard_state_activate();
 
     load_shell();
-    enter_user_mode((void *) 0, (void *) KERNEL_VIRTUAL_ADDRESS_BASE);
+    enter_user_mode((void *) shell_memory.entrypoint, (void *) shell_memory.stack_top);
 }
