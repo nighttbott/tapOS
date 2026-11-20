@@ -8,7 +8,7 @@ OUT=bin/host
 mkdir -p "$OUT"
 
 echo "== freestanding build"
-for file in syscall shell grep proc fsutil nav crt0; do
+for file in syscall shell grep proc fsutil nav file crt0; do
     gcc -m32 -ffreestanding -nostdlib -fno-stack-protector -Wall -Wextra -Werror -Isrc \
         -c "src/user/$file.c" -o "$OUT/user_$file.o" || { echo "BUILD FAILED"; exit 2; }
 done
@@ -22,7 +22,7 @@ echo "== host build"
 # shell.c has the real main(); the test needs its own
 gcc $FLAGS $RENAME -Dmain=shell_main -c src/user/shell.c -o "$OUT/shell.o" || { echo "BUILD FAILED"; exit 2; }
 gcc $FLAGS $RENAME \
-    "$OUT/shell.o" src/user/grep.c src/user/proc.c src/user/fsutil.c src/user/nav.c src/filesystem/ext2.c \
+    "$OUT/shell.o" src/user/grep.c src/user/proc.c src/user/fsutil.c src/user/nav.c src/user/file.c src/filesystem/ext2.c \
     test/common/fs_test.c test/host/ram_disk.c \
     test/host/shell_mock_syscall.c test/host/shell_test.c \
     -o "$OUT/test_shell" || { echo "BUILD FAILED"; exit 2; }

@@ -609,6 +609,41 @@ static void mkdir_cases(void) {
     check_output("H29", "no argument", "usage: mkdir DIR...\n");
 }
 
+static void cat_cases(void) {
+    static char big[20000];
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+
+    check("H30", "cat a file", run_real("cat notes") == 0 &&
+          strcmp(mock_output, "alpha\nbeta x\ngamma\n\nx last") == 0);
+    run_real("cat /docs/inner notes");
+    check_output("H30", "several files in order", "one\ntwo x\nalpha\nbeta x\ngamma\n\nx last");
+    shell_cwd_set(docs, "/docs");
+    run_real("cat inner");
+    check_output("H30", "relative to the CWD", "one\ntwo x\n");
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("cat notes | grep x");
+    check_output("H30", "cat | grep", "beta x\nx last\n");
+    run_real("grep a notes | cat");
+    check_output("H30", "cat passes pipeline input", "alpha\nbeta x\ngamma\nx last\n");
+    run_real("cat empty");
+    check("H30", "empty file", mock_output_len == 0);
+
+    check("H31", "missing file", run_real("cat nothing") != 0 &&
+          strcmp(mock_output, "cat: nothing: not found\n") == 0);
+    run_real("cat docs");
+    check_output("H31", "folder", "cat: docs: is a directory\n");
+    run_real("cat /");
+    check_output("H31", "root", "cat: /: is a directory\n");
+    run_real("cat nothing notes");
+    check_output("H31", "error then the next file", "cat: nothing: not found\nalpha\nbeta x\ngamma\n\nx last");
+    run_real("cat");
+    check_output("H31", "no argument and no input", "usage: cat FILE...\n");
+    memset(big, 'q', sizeof(big));
+    write_file(SHELL_ROOT_INODE, "big", big, sizeof(big));
+    run_real("cat big");
+    check_output("H31", "larger than one stage", "pipeline: output too large\n");
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -627,6 +662,7 @@ int main(int argc, char **argv) {
     cd_cases();
     ls_cases();
     mkdir_cases();
+    cat_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }

@@ -11,6 +11,7 @@ static const struct ShellCommand commands[] = {
     { "cd", cmd_cd },
     { "ls", cmd_ls },
     { "mkdir", cmd_mkdir },
+    { "cat", cmd_cat },
     { "grep", cmd_grep },
     { "exec", cmd_exec },
     { "ps", cmd_ps },
