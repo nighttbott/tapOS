@@ -1,5 +1,6 @@
 #include "header/cpu/idt.h"
 #include "header/cpu/gdt.h"
+#include "header/cpu/syscall.h"
 
 struct IDT interrupt_descriptor_table;
 struct IDTR _idt_idtr;
@@ -8,6 +9,8 @@ void initialize_idt(void) {
     for(int i = 0; i < ISR_STUB_TABLE_LIMIT; i++){
         set_interrupt_gate(i, isr_stub_table[i], GDT_KERNEL_CODE_SEGMENT_SELECTOR, 0);
     }
+    // DPL 3 so Ring 3 may run int 0x30; with DPL 0 it raises #GP
+    set_interrupt_gate(SYSCALL_VECTOR, isr_stub_table[SYSCALL_VECTOR], GDT_KERNEL_CODE_SEGMENT_SELECTOR, 3);
     uintptr_t interrupt_descriptor_table_address = (uintptr_t) &interrupt_descriptor_table;
     _idt_idtr.size = sizeof(interrupt_descriptor_table) - 1;
     _idt_idtr.offset = interrupt_descriptor_table_address;

@@ -4,7 +4,7 @@
 
 Sistem operasi sederhana untuk platform **x86 32-bit Protected Mode**, dikembangkan menggunakan C dan Assembly NASM sebagai Tugas Besar **IF2130 Sistem Operasi 2026/2027**.
 
-Implementasi saat ini mencakup **Milestone 1 dan Milestone 2**.
+Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Milestone 3**.
 
 ## Daftar Isi
 
@@ -60,6 +60,16 @@ Implementasi saat ini mencakup **Milestone 1 dan Milestone 2**.
 - Page fault handler dengan alokasi page saat pertama diakses.
 - Swap space 1 MiB setelah area EXT2 dan page replacement Clock.
 
+### Milestone 3 — Shell
+
+- Pembaca baris, parser, state CWD, resolusi path, pipeline, dan `grep` di `src/user/`.
+- Shell berjalan di Ring 3: syscall `int 0x30` tersambung, TSS aktif, dan kernel memuat `/shell` ke alamat 0.
+- Build program user (`make user-shell`) dan host inserter (`make insert-shell`).
+- Logika shell diuji di laptop (`bash test/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash test/qemu/run_shell_qemu.sh`).
+- Cara kerja, kontrak command, dan batasannya tersedia di [docs/shell.md](docs/shell.md).
+
+Build user, loader, dan penyambungan syscall awalnya dibagikan ke anggota lain. Karena anggota tersebut tidak dapat dihubungi, bagian ini dikerjakan oleh pemegang shell.
+
 ## Lingkungan Pengembangan
 
 | Tool | Versi yang digunakan |
@@ -111,7 +121,15 @@ Disk disimpan pada `bin/storage.bin`. Filesystem diinisialisasi otomatis ketika 
 
 **Jangan menjalankan `make disk` kembali pada disk yang ingin dipertahankan karena perintah tersebut membuat ulang disk image.**
 
-### 4. Menjalankan QEMU
+### 4. Memasukkan shell ke disk
+
+```bash
+make insert-shell
+```
+
+Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah.
+
+### 5. Menjalankan QEMU
 
 ```bash
 qemu-system-i386 \
@@ -119,18 +137,9 @@ qemu-system-i386 \
     -cdrom bin/OS2025.iso
 ```
 
-Kernel menginisialisasi filesystem, kemudian menerima input keyboard.
+Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command yang tersedia baru `grep`, dan pipeline dengan `|` sudah didukung. Detailnya ada di [docs/shell.md](docs/shell.md).
 
-| Input | Fungsi |
-| --- | --- |
-| Karakter yang dapat dicetak | Menampilkan karakter pada layar |
-| Enter | Memindahkan kursor ke baris berikutnya |
-| Backspace | Menghapus karakter pada sel sebelumnya |
-| Tombol panah | Memindahkan posisi kursor |
-
-Layar melakukan scrolling ketika penulisan melewati baris terakhir.
-
-### 5. Menjalankan dengan debugger
+### 6. Menjalankan dengan debugger
 
 ```bash
 make run
@@ -140,7 +149,7 @@ Target ini menjalankan QEMU dengan opsi `-s -S`. GDB server tersedia pada port `
 
 Gunakan perintah QEMU pada langkah 4 untuk menjalankan OS langsung tanpa menunggu debugger.
 
-### 6. Membersihkan hasil build
+### 7. Membersihkan hasil build
 
 ```bash
 make clean
@@ -214,6 +223,9 @@ Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. 
 ## Batasan Saat Ini
 
 - Input keyboard menggunakan buffer satu karakter.
-- Filesystem diakses melalui interface kernel dan kernel pengujian; command shell belum tersedia.
-- User mode, shell, process management, dan scheduler merupakan pengembangan milestone berikutnya.
+- Filesystem diakses melalui interface kernel dan kernel pengujian.
+- Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
+- Baru `grep` yang tersedia di shell; `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, dan `find` belum ada.
+- Shell tidak mendukung tanda kutip, dan keluaran satu command dibatasi 16 KiB.
+- Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.

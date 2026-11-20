@@ -5,6 +5,7 @@
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
 #include "header/memory/swap.h"
+#include "header/cpu/syscall.h"
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
@@ -71,16 +72,16 @@ static void exception_panic(const struct InterruptFrame *frame) {
     exception_write_text(0, 0, "tapOS : CPU EXCEPTION");
 
     exception_write_text(2, 0, "Vector     : 0x");
-    exception_write_hex(2, 14, frame->int_number);
+    exception_write_hex(2, 15, frame->int_number);
 
     exception_write_text(3, 0, "Error code : 0x");
-    exception_write_hex(3, 14, frame->int_stack.error_code);
+    exception_write_hex(3, 15, frame->int_stack.error_code);
     
     exception_write_text(4, 0, "EIP        : 0x");
-    exception_write_hex(4, 14, frame->int_stack.eip);
+    exception_write_hex(4, 15, frame->int_stack.eip);
 
     exception_write_text(5, 0, "CR2        : 0x");
-    exception_write_hex(5, 14, read_cr2());
+    exception_write_hex(5, 15, read_cr2());
 
     exception_write_text(6, 0, "Kernel dihentikan");
 
@@ -98,6 +99,10 @@ void main_interrupt_handler(struct InterruptFrame frame) {
     switch (frame.int_number) {
         case PIC1_OFFSET + IRQ_KEYBOARD :
             keyboard_isr();
+            break;
+        case SYSCALL_VECTOR :
+            // frame lives on the stack popad reads, so the EAX result reaches Ring 3
+            syscall_dispatch(&frame);
             break;
     }
 }

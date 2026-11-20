@@ -14,7 +14,7 @@ rm -rf "$OUT" && mkdir -p "$OUT/obj" "$OUT/iso/boot/grub"
 for s in $(find src -name '*.s'); do
     nasm -f elf32 -g -F dwarf "$s" -o "$OUT/obj/$(echo "$s" | tr / _).o" || exit 2
 done
-for c in $(find src -name '*.c' ! -path src/kernel.c) test/common/*.c test/qemu/*.c; do
+for c in $(find src -name '*.c' ! -path src/kernel.c ! -path 'src/user/*') test/common/*.c test/qemu/*.c; do
     gcc $CFLAGS "$c" -o "$OUT/obj/$(echo "$c" | tr / _).o" || exit 2
 done
 ld -T src/linker.ld -melf_i386 -z noexecstack "$OUT"/obj/*.o -o "$OUT/kernel" || exit 2
