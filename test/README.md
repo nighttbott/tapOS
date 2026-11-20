@@ -4,6 +4,11 @@
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------- | ----- |
 | `bash test/host/run_host_tests.sh` | Runs the real `src/filesystem/ext2.c` on laptop with a fake RAM disk, then health-checks the disk images | ~5 s  |
 | `bash test/qemu/run_qemu_tests.sh` | Boots small test kernels in QEMU with the real ATA driver; includes two-boot persistence                 | ~15 s |
+| `bash test/host/run_shell_tests.sh` | Runs the real `src/user` shell logic on laptop, with mock syscalls on the real `ext2.c`                 | ~5 s  |
+| `bash test/qemu/run_shell_qemu.sh` | Boots the real kernel and shell, types commands through the QEMU monitor and checks the screen        | ~15 s |
+| `bash test/qemu/run_m4_qemu.sh`    | Milestone 4 end to end (P01–P12): `ps`, `exec hello`, clock, `kill`, process limit. Needs `hello.c` and `clock.c` | ~3 min |
+
+`test/qemu/qemu_shell.py` holds the QEMU driver both keystroke tests share: `sendkey` through the monitor, and the text screen read from `0xB8000` with `pmemsave`. Test kernels leave out `src/user/*`, because every user program has its own `main`.
 
 Needs: `gcc`, `nasm`, `ld`, `genisoimage`, `qemu-system-i386`, `python3`.
 

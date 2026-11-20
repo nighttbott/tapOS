@@ -1,9 +1,3 @@
-# Shell tapOS (Milestone 3, Anggota D)
-
-Dokumen ini menjelaskan isi `src/user/`, cara kerjanya, kontrak untuk command milik E, dan hal yang masih menunggu anggota lain.
-
-**Status:** logika shell selesai dan lulus test host. Shell belum pernah berjalan di Ring 3, karena loader, build user, dan penyambungan syscall belum ada (lihat [Yang masih dibutuhkan](#yang-masih-dibutuhkan-dari-anggota-lain)).
-
 ## Daftar file
 
 | File | Isi |
@@ -15,6 +9,9 @@ Dokumen ini menjelaskan isi `src/user/`, cara kerjanya, kontrak untuk command mi
 | `test/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
 | `test/host/shell_test.c` | Test H01–H17 |
 | `test/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
+| `src/user/crt0.c`, `user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
+| `tools/inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
+| `test/qemu/run_shell_qemu.sh`, `shell_keys.py` | Test shell di QEMU dengan input keyboard |
 
 ## Alur satu perintah
 
@@ -69,7 +66,7 @@ Tanda kutip tidak didukung.
 
 Semua stage dicari di tabel **sebelum** ada yang dijalankan. Jadi `rm a | typo` hanya mencetak `typo: command not found` dan `a` tidak terhapus.
 
-Dua buffer statis 4096 byte dipakai bergantian. Setelah sebuah stage selesai:
+Dua buffer statis 16 KiB (`SHELL_IO_BUFFER`) dipakai bergantian, sehingga file 16 KiB bisa lewat pipeline. Setelah sebuah stage selesai:
 
 | Kondisi | Tindakan |
 | --- | --- |
@@ -156,7 +153,7 @@ Aturan:
 
 ## ABI syscall
 
-`int 0x30`, `EAX` = nomor, `EBX` = argumen 1, `ECX` = argumen 2, hasil di `EAX`. Nomornya diambil dari `enum SyscallNumber`, dan berbeda dari penomoran di buku.
+`int 0x30`, `EAX` = nomor, `EBX`/`ECX`/`EDX` = argumen 1–3, hasil di `EAX`. Nomornya diambil dari `enum SyscallNumber`, dan berbeda dari penomoran di buku.
 
 | No | Wrapper | Hasil |
 | --- | --- | --- |
@@ -166,6 +163,24 @@ Aturan:
 | 4 | `sys_read_dir(req)` | Kode hasil `read_directory` |
 | 5 | `sys_write_file(req)` | Kode hasil `write` |
 | 6 | `sys_delete(req)` | Kode hasil `delete` |
+| 7 | `sys_exit(code)` | Tidak kembali |
+| 8 | `sys_exec(req, pid_out)` | Kode `PROCESS_CREATE_*` (0 sukses), -1 request tidak valid |
+| 9 | `sys_kill(pid)` | 0 berhasil, 1 tidak ada, 2 ditolak (init) |
+| 10 | `sys_process_list(buf, capacity)` | Jumlah baris `struct SyscallProcessInfo`, -1 buffer tidak valid |
+| 11 | `sys_get_time(out)` | 0, atau -1 |
+| 12 | `sys_write_status(buf, len, col)` | Jumlah karakter di baris status, atau -1 |
+
+**Status per 19 November:** nomor 7–12, `struct SyscallProcessInfo`, dan wrapper-nya sudah ada. Kernel belum menangani nomor 7–12, karena case di `syscall_dispatch` memanggil API proses (A), scheduler (C), konsol baris status (C), dan CMOS (E) yang belum dibuat. Sampai saat itu, kernel menjawab -1, dan `crt0` berputar di tempat setelah `sys_exit`.
+
+## Command proses (`src/user/proc.c`)
+
+| Command | Perilaku | Pesan |
+| --- | --- | --- |
+| `exec PATH` | Path relatif terhadap CWD (`exec /hello` dari folder lain). Shell tidak menunggu programnya selesai | `exec: started NAME (PID n)`; kode 1 `exec: too many processes`; 3 `exec: not enough memory`; 4 atau path gagal `exec: PATH: not found`; lainnya `exec: invalid request` |
+| `ps` | Tabel `PID  STATE    NAME`, satu baris per proses. Lebar kolom PID 5, STATE 9 | Kernel gagal: `ps: cannot read the process list` |
+| `kill PID` | Desimal saja. Berhasil tanpa pesan | `kill: PID: no such process`; `kill: cannot kill init (PID 1)`; angka tidak valid `usage: kill PID` |
+
+Path yang gagal di-resolve dan PID yang tidak valid tidak pernah dikirim ke kernel. Ketiganya bisa dipakai di pipeline, misalnya `ps | grep clock`.
 
 ## Menjalankan test
 
@@ -182,30 +197,88 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 | Batasan | Nilai | Akibat |
 | --- | --- | --- |
 | Panjang baris | 127 karakter | Ketikan berikutnya diabaikan |
-| Keluaran per stage | 4096 byte | Lebih dari itu: `pipeline: output too large`, tanpa keluaran parsial. `cat` pada file besar akan gagal |
+| Keluaran per stage | 16 KiB | Lebih dari itu: `pipeline: output too large`, tanpa keluaran parsial |
 | Ukuran file `grep` | 16 KiB | `file too large` |
 | Ukuran folder yang bisa dimasuki | 16 KiB (32 blok) | Folder lebih besar dianggap tidak ada |
 | Panjang path | 255 karakter | `shell_resolve_dir` gagal |
 | Tanda kutip | Tidak didukung | Argumen tidak bisa berisi spasi atau `\|` |
 | Riwayat dan edit dengan panah | Tidak ada | Tombol panah diabaikan |
 
-## Yang masih dibutuhkan dari anggota lain
+## Menjalankan shell di Ring 3
 
-Shell tidak bisa berjalan di QEMU sampai ini selesai.
+Bagian ini awalnya milik A (build user, loader) dan C (penyambungan syscall). Karena anggota lain tidak bisa dihubungi, bagian ini dikerjakan oleh D.
 
-**C (syscall dan user mode):**
+```bash
+test -f bin/storage.bin || make disk
+make all insert-shell
+qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+```
 
-1. Menambahkan `src/cpu/syscall.c` ke target `kernel` di `Makefile`.
-2. Memasang gate `0x30` dengan DPL 3 di `src/cpu/idt.c`.
-3. Menambahkan case `SYSCALL_VECTOR` di `main_interrupt_handler` yang memanggil `syscall_dispatch`.
-4. Memanggil `initialize_tss()` di `kernel_setup`.
-5. Mempertahankan `keyboard_state_activate()` saat loop keyboard di `kernel_setup` diganti dengan masuk user mode, karena tidak ada syscall untuk mengaktifkannya.
-6. `'\b'` di kolom 0 tidak naik ke baris sebelumnya (`syscall_write_char`). Baris panjang yang terbungkus ke baris berikutnya akan tampil tidak sesuai saat dihapus, walaupun isi buffer tetap benar.
+| Target `make` | Hasil |
+| --- | --- |
+| `user-shell` | `bin/shell`, binary flat untuk alamat 0. Objeknya di `bin/user/`, supaya tidak ikut di-link ke kernel |
+| `inserter` | `bin/inserter`, program laptop yang memakai `ext2.c` asli |
+| `insert-shell` | Memasukkan `bin/shell` ke root `bin/storage.bin`, menimpa versi lama |
+| `run` | Sekarang juga menjalankan `insert-shell` |
 
-**A (build user dan loader):**
+`inserter <file> <parent_inode> <storage.bin>` bisa dipakai untuk file lain. Nama entrinya diambil dari nama file, dan area swap di belakang 4 MiB pertama tidak disentuh.
 
-1. Menyediakan `crt0` (`_start` memanggil `main`), linker script user, target Makefile, dan host inserter.
-2. Link `shell.c`, `grep.c`, `syscall.c`, dan `src/stdlib/string.c`. Uji link dengan `ld -Ttext 0` berhasil tanpa simbol yang hilang.
-3. Memetakan seluruh binary dan mengosongkan `.bss`. Ukurannya sekitar 6 KB kode dan 41 KB `.bss`. `.bss` harus sudah present, karena `syscall_validate_user_range` menolak buffer pada halaman yang belum dipetakan, walaupun ada page fault handler.
-4. Menyediakan stack user, lalu memanggil `enter_user_mode(entry, stack_top)`.
-5. Compile dengan `-fno-pie`. Tanpa itu, GCC di Ubuntu menghasilkan referensi `_GLOBAL_OFFSET_TABLE_`.
+### Alur boot
+
+```
+kernel_setup
+ ├─ GDT, paging, PIC, IDT (gate 0x30 dengan DPL 3), keyboard, filesystem
+ ├─ initialize_tss          esp0 = stack kernel 64 KiB untuk syscall
+ ├─ keyboard_state_activate tidak ada syscall untuk ini
+ ├─ load_shell
+ │   ├─ petakan 0x0–0x3FFFF (256 KiB) dan 4 halaman stack di bawah 0xC0000000
+ │   └─ read("shell") ke alamat 0
+ └─ enter_user_mode(0, 0xC0000000)
+      └─ _start (crt0.c) → main (shell.c)
+
+int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
+```
+
+| File | Perubahan |
+| --- | --- |
+| `src/kernel.c` | Loop echo keyboard diganti dengan `load_shell` dan `enter_user_mode` |
+| `src/cpu/idt.c` | Gate `0x30` dengan DPL 3. Dengan DPL 0, `int 0x30` dari Ring 3 memicu #GP |
+| `src/cpu/interrupt.c` | Case `SYSCALL_VECTOR` memanggil `syscall_dispatch` |
+| `src/cpu/gdt.c` | Stack TSS dari 4 KiB menjadi 64 KiB, karena `ext2.c` memakai buffer blok di stack |
+| `Makefile` | `syscall.c` ikut kernel; target `user-shell`, `inserter`, `insert-shell` |
+| `src/user/crt0.c` | `_start` di section `.text.entry`, lalu memanggil `main` |
+| `src/user/user-linker.ld` | Binary flat di alamat 0, dengan `ASSERT` ukuran |
+| `tools/inserter.c` | Inserter host. Ada di luar `src/` karena test QEMU meng-compile semua `src/**/*.c` ke kernel uji |
+
+Hal yang perlu diingat:
+
+- **Semua halaman dipetakan di awal.** `syscall_validate_user_range` hanya menerima halaman yang present, jadi buffer `.bss` tidak bisa menunggu page fault handler. Halaman baru selalu dikosongkan, sehingga `.bss` otomatis nol.
+- **Ukuran gambar program tetap 256 KiB.** `USER_IMAGE_SIZE` di `src/kernel.c` dan `ASSERT` di `user-linker.ld` harus sama. Build gagal bila program melewati batas ini. Saat ini shell memakai sekitar 4 KB kode dan 41 KB `.bss`.
+- **Kalau `main` selesai, program berputar di `_start`**, karena syscall `exit` baru ada di Milestone 4.
+- **Kalau `/shell` tidak ada**, kernel menulis `tapOS: /shell not found, run: make insert-shell` lalu berhenti.
+
+### Test QEMU
+
+```bash
+bash test/qemu/run_shell_qemu.sh
+```
+
+Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `test/qemu/shell_keys.py` mengetik lewat monitor QEMU (`sendkey`) dan membaca layar teks dari `0xB8000` (`pmemsave`).
+
+| ID | Kasus |
+| --- | --- |
+| Q01 | Prompt `tapOS:/$` muncul setelah boot |
+| Q02 | Backspace mengubah tampilan dan isi baris |
+| Q03 | Command tidak dikenal |
+| Q04 | `grep` membaca file nyata dari disk |
+| Q05 | Pipeline `grep a notes \| grep l` |
+| Q06 | Pesan error `grep` |
+| Q07 | Pesan error parser |
+| Q08 | Prompt kembali setelah semua perintah |
+
+Layar terakhir disimpan di `bin/shell-qemu/screen.txt`. Langkah 5 dan 6 acceptance (`cat | grep`, prompt berubah setelah `cd`) menunggu command E.
+
+### Catatan untuk kode kernel
+
+- `'\b'` di kolom 0 tidak naik ke baris sebelumnya (`syscall_write_char`). Baris panjang yang terbungkus akan tampil tidak sesuai saat dihapus, walaupun isi buffer tetap benar.
+- Halaman user bisa dipindahkan ke swap saat RAM penuh. Setelah itu syscall yang memakai buffer di halaman tersebut akan gagal, karena validasi hanya menerima halaman present. Dengan RAM default 128 MiB, hal ini tidak terjadi.
