@@ -55,6 +55,11 @@ int32_t fsu_read_file(uint32_t parent, const char *name, const char **data, uint
 /* Same as fsu_read_file, from a path. Returns NULL on success, otherwise a short error message. */
 const char *fsu_read_path(const char *path, const char **data, uint32_t *size);
 
+/* Deletes a file, or an empty folder when is_dir. Returns the delete() code. */
+int32_t fsu_remove(uint32_t parent, const char *name, bool is_dir);
+/* Deletes folder name with everything inside it. Returns the delete() code of the folder. */
+int32_t fsu_remove_tree(uint32_t parent, const char *name);
+
 /* Writes "cmd: path: message\n". */
 void fsu_error(struct ShellIO *io, const char *cmd, const char *path, const char *message);
 /* True for "." and "..". */
@@ -65,5 +70,6 @@ int cmd_cd(int argc, char **argv, struct ShellIO *io);
 int cmd_ls(int argc, char **argv, struct ShellIO *io);
 int cmd_mkdir(int argc, char **argv, struct ShellIO *io);
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
+int cmd_rm(int argc, char **argv, struct ShellIO *io);
 
 #endif

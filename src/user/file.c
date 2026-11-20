@@ -31,3 +31,69 @@ int cmd_cat(int argc, char **argv, struct ShellIO *io) {
     }
     return status;
 }
+
+/* True when the last component of path is "." or "..". */
+static bool ends_in_dot(const char *path) {
+    char name[SHELL_NAME_MAX + 1];
+    uint32_t parent;
+
+    return shell_resolve_parent(path, &parent, name) == 0 && fsu_is_dot(name, shell_strlen(name));
+}
+
+/* "-r" or "-R" as the first argument. Returns the index of the first operand. */
+static int recursive_flag(int argc, char **argv, bool *recursive) {
+    *recursive = argc > 1 &&
+                 (shell_strcmp(argv[1], "-r") == 0 || shell_strcmp(argv[1], "-R") == 0);
+    return *recursive ? 2 : 1;
+}
+
+/* Returns NULL on success, otherwise the error message. */
+static const char *remove_one(const char *path, bool recursive) {
+    struct FsuTarget target;
+    int32_t code;
+
+    if (ends_in_dot(path)) {
+        return "cannot remove '.' or '..'";
+    }
+    if (fsu_stat(path, &target) != 0) {
+        uint32_t dir;
+        char absolute[SHELL_PATH_MAX];
+
+        // Only the root resolves as a folder without being an entry of some parent.
+        return shell_resolve_dir(path, &dir, absolute) == 0 ? "cannot remove the root directory"
+                                                            : "not found";
+    }
+    if (target.type == EXT2_FT_DIR) {
+        if (!recursive) {
+            return "is a directory (use rm -r)";
+        }
+        if (fsu_is_inside(shell_cwd_inode(), target.inode)) {
+            return "is the current directory or above it";
+        }
+        code = fsu_remove_tree(target.parent, target.name);
+    } else {
+        code = fsu_remove(target.parent, target.name, false);
+    }
+    return code == 0 ? NULL : "cannot remove";
+}
+
+/* Removes files; folders need -r. The current folder and the folders above it are kept. */
+int cmd_rm(int argc, char **argv, struct ShellIO *io) {
+    bool recursive;
+    int first = recursive_flag(argc, argv, &recursive);
+    int status = 0;
+
+    if (first >= argc) {
+        shell_out_str(io, "usage: rm [-r] PATH...\n");
+        return 1;
+    }
+    for (int i = first; i < argc; i++) {
+        const char *error = remove_one(argv[i], recursive);
+
+        if (error != NULL) {
+            fsu_error(io, "rm", argv[i], error);
+            status = 1;
+        }
+    }
+    return status;
+}

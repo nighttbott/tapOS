@@ -190,3 +190,71 @@ const char *fsu_read_path(const char *path, const char **data, uint32_t *size) {
             return "read failed";
     }
 }
+
+static int32_t remove_entry(uint32_t parent, const char *name, uint32_t len, bool is_dir) {
+    struct EXT2DriverRequest request = {
+        .buf = NULL,
+        .name = (char *)name,
+        .name_len = (uint8_t)len,
+        .parent_inode = parent,
+        .is_directory = is_dir,
+    };
+
+    return sys_delete(&request);
+}
+
+/*
+ * Deletes everything inside folder dir. Each round lists dir again and removes its first child,
+ * so no names have to be kept across the recursion. A child folder that is not empty is emptied
+ * first and removed in the next round.
+ */
+static bool clear_dir(uint32_t dir, uint32_t depth) {
+    uint32_t emptied = 0;
+
+    for (;;) {
+        const uint8_t *table = fsu_list(dir);
+        struct FsuEntry entry;
+        uint32_t offset = 0;
+        int32_t code;
+
+        if (table == NULL) {
+            return false;
+        }
+        if (!fsu_next_entry(table, &offset, &entry)) {
+            return true;
+        }
+        if (entry.type != EXT2_FT_DIR && entry.type != EXT2_FT_REG_FILE) {
+            return false;
+        }
+        code = remove_entry(dir, entry.name, entry.name_len, entry.type == EXT2_FT_DIR);
+        if (code == 0) {
+            continue;
+        }
+        // Only "folder not empty" is worth a retry, and only once per folder.
+        if (code != 2 || entry.inode == emptied || depth >= FSU_DEPTH_MAX ||
+            !clear_dir(entry.inode, depth + 1)) {
+            return false;
+        }
+        emptied = entry.inode;
+    }
+}
+
+int32_t fsu_remove(uint32_t parent, const char *name, bool is_dir) {
+    return remove_entry(parent, name, shell_strlen(name), is_dir);
+}
+
+int32_t fsu_remove_tree(uint32_t parent, const char *name) {
+    uint32_t len = shell_strlen(name);
+    int32_t code = remove_entry(parent, name, len, true);
+    uint32_t inode;
+    uint8_t type;
+
+    if (code != 2) {
+        return code;
+    }
+    if (fsu_lookup(parent, name, &inode, &type) != 0 || type != EXT2_FT_DIR ||
+        !clear_dir(inode, 1)) {
+        return -1;
+    }
+    return remove_entry(parent, name, len, true);
+}

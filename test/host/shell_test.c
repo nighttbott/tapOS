@@ -644,6 +644,61 @@ static void cat_cases(void) {
     check_output("H31", "larger than one stage", "pipeline: output too large\n");
 }
 
+static void rm_cases(void) {
+    uint32_t docs = child_inode(SHELL_ROOT_INODE, "docs");
+    uint32_t box = child_inode(SHELL_ROOT_INODE, "box");
+    uint32_t before;
+
+    write_file(SHELL_ROOT_INODE, "gone", "x", 1);
+    check("H32", "rm a file", run_real("rm gone") == 0 && mock_output_len == 0 &&
+          child_inode(SHELL_ROOT_INODE, "gone") == 0);
+    write_file(box, "f1", "1", 1);
+    write_file(box, "f2", "2", 1);
+    run_real("rm box/f1 /box/f2");
+    check("H32", "several paths", child_inode(box, "f1") == 0 && child_inode(box, "f2") == 0);
+    write_file(SHELL_ROOT_INODE, "gone", "y", 1);
+    check("H32", "name can be used again", child_inode(SHELL_ROOT_INODE, "gone") != 0);
+    run_real("rm gone");
+
+    // box holds inner/ and deeper/; fill it so rm -r has to go two levels down
+    write_file(child_inode(box, "inner"), "leaf", "leaf", 4);
+    run_real("mkdir box/inner/sub");
+    write_file(child_inode(child_inode(box, "inner"), "sub"), "leaf2", "leaf2", 5);
+    check("H33", "folder needs -r", run_real("rm box") != 0 &&
+          strcmp(mock_output, "rm: box: is a directory (use rm -r)\n") == 0 &&
+          child_inode(SHELL_ROOT_INODE, "box") == box);
+    before = child_inode(SHELL_ROOT_INODE, "box2");
+    check("H33", "rm -r removes the whole tree", run_real("rm -r box box2") == 0 &&
+          mock_output_len == 0 && child_inode(SHELL_ROOT_INODE, "box") == 0 &&
+          before != 0 && child_inode(SHELL_ROOT_INODE, "box2") == 0);
+    check("H33", "removed folder is gone for ls", run_real("ls box") != 0);
+    run_real("mkdir box");
+    check("H33", "name free again", child_inode(SHELL_ROOT_INODE, "box") != 0);
+
+    shell_cwd_set(child_inode(docs, "a"), "/docs/a");
+    run_real("rm -r /docs");
+    check_output("H34", "folder above the CWD", "rm: /docs: is the current directory or above it\n");
+    run_real("rm -r .");
+    check_output("H34", "dot", "rm: .: cannot remove '.' or '..'\n");
+    run_real("rm -r ..");
+    check_output("H34", "dot dot", "rm: ..: cannot remove '.' or '..'\n");
+    shell_cwd_set(SHELL_ROOT_INODE, "/");
+    run_real("rm -r /");
+    check_output("H34", "root", "rm: /: cannot remove the root directory\n");
+    run_real("rm nothing");
+    check_output("H34", "missing", "rm: nothing: not found\n");
+    run_real("rm nothing notes");
+    check("H34", "error does not stop the rest", child_inode(SHELL_ROOT_INODE, "notes") == 0 &&
+          strcmp(mock_output, "rm: nothing: not found\n") == 0);
+    write_file(SHELL_ROOT_INODE, "notes", "alpha\nbeta x\ngamma\n\nx last", 25);
+    run_real("rm");
+    check_output("H34", "no argument", "usage: rm [-r] PATH...\n");
+    run_real("rm -r");
+    check_output("H34", "only the flag", "usage: rm [-r] PATH...\n");
+    run_real("rm notes | typo");
+    check("H34", "unknown later stage deletes nothing", child_inode(SHELL_ROOT_INODE, "notes") != 0);
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 || ram_disk_load(argv[1]) != 0) {
         fprintf(stderr, "usage: %s <disk image>\n", argv[0]);
@@ -663,6 +718,7 @@ int main(int argc, char **argv) {
     ls_cases();
     mkdir_cases();
     cat_cases();
+    rm_cases();
     fs_test_sum(&ctx, "shell");
     return ctx.failed == 0 ? 0 : 1;
 }
