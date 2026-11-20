@@ -142,19 +142,7 @@ void pic_ack(uint8_t irq);
 // Shift PIC interrupt number to PIC1_OFFSET and PIC2_OFFSET (master and slave)
 void pic_remap(void);
 
-/**
- * Main interrupt handler when any interrupt / exception is raised.
- * DO NOT CALL THIS FUNCTION.
- * 
- * This function will be called first if any INT 0x00 - 0x40 is raised, 
- * and will call proper ISR for respective interrupt / exception.
- * 
- * If inter-privilege interrupt raised, SS and ESP is automatically out of main_interrupt_handler()
- * parameter. Can be checked with ((int*) info) + 4 for user $esp, 5 for user $ss
- * 
- * Again, this function is not for normal function call, all parameter will be automatically set when interrupt is called.
- * @param frame Information about CPU during interrupt is raised
- */
-void main_interrupt_handler(struct InterruptFrame frame);
+/* Called only by the assembly ISR. Changes to the saved frame survive iret. */
+void main_interrupt_handler(struct InterruptFrame *frame);
 
 #endif

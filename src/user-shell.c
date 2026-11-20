@@ -168,8 +168,9 @@ int shell_execute_line(char *line) {
     return shell_execute_commands(line, commands, sizeof(commands) / sizeof(commands[0]));
 }
 
-void shell_read_line(char *line) {
+bool shell_read_line(char *line) {
     uint32_t len = 0;
+    bool too_long = false;
     char c;
 
     for (;;) {
@@ -179,16 +180,26 @@ void shell_read_line(char *line) {
         if (c == '\n') {
             sys_write_text(&c, 1);
             line[len] = '\0';
-            return;
+            if (too_long) {
+                print("shell: input line too long\n");
+            }
+            return !too_long;
+        }
+        if (too_long) {
+            continue;
         }
         if (c == '\b') {
             if (len > 0) {
                 len--;
                 sys_write_text(&c, 1);
             }
-        } else if (c >= 0x20 && c <= 0x7E && len < SHELL_LINE_MAX - 1) {
-            line[len++] = c;
-            sys_write_text(&c, 1);
+        } else if (c >= 0x20 && c <= 0x7E) {
+            if (len == SHELL_LINE_MAX - 1) {
+                too_long = true;
+            } else {
+                line[len++] = c;
+                sys_write_text(&c, 1);
+            }
         }
     }
 }
@@ -204,7 +215,8 @@ int main(void) {
 
     for (;;) {
         shell_print_prompt();
-        shell_read_line(line);
-        shell_execute_line(line);
+        if (shell_read_line(line)) {
+            shell_execute_line(line);
+        }
     }
 }

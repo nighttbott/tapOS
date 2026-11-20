@@ -30,7 +30,7 @@ KERNEL_C_SOURCES = kernel.c cpu/gdt.c cpu/idt.c cpu/interrupt.c cpu/syscall.c \
 KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=.o) $(KERNEL_C_SOURCES:.c=.o)))
 
 .PHONY: run all build clean kernel iso disk user-apps inserter insert-shell insert-apps \
-        kernel-c-sources kernel-asm-sources
+        kernel-c-sources kernel-asm-sources shell-module-sources shell_elf
 
 run: all insert-shell
 	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -s -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
@@ -70,19 +70,27 @@ iso: kernel
 								-input-charset utf8       	\
 								-quiet                    	\
 								-boot-info-table          	\
-								-o OS2025.iso             	\
+								-o $(ISO_NAME).iso             	\
 								iso 
 	@rm -r $(OUTPUT_FOLDER)/iso/
-disk:
+disk: $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+	@test "$$(wc -c < $<)" -ge 5242880 || { \
+		echo "$< needs at least 5 MiB for EXT2 and swap. Back up the image before migrating it." >&2; \
+		exit 1; \
+	}
+
+$(OUTPUT_FOLDER)/$(DISK_NAME).bin:
 	@mkdir -p $(OUTPUT_FOLDER)
-	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 5M
+	@qemu-img create -f raw $@ 5M
 
 # User programs are flat binaries at address 0. Each one gets its own object folder under bin/user,
 # so its link sees only its own objects and the kernel links only KERNEL_OBJECTS.
 USER_PROGRAMS = shell hello clock
 USER_COMMON   = user/syscall.c stdlib/string.c
-USER_SOURCES_shell = user-shell.c user/shell-parser.c user/shell-pipeline.c \
-                     user/command/search.c user/command/process.c
+SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
+                       user/command/navigation.c user/command/file.c user/command/find.c \
+                       user/command/search.c user/command/process.c
+USER_SOURCES_shell = user-shell.c $(SHELL_MODULE_SOURCES)
 USER_SOURCES_hello = external/hello.c
 USER_SOURCES_clock = external/clock.c
 # Static pattern: a plain user-% would also match user-apps and build a program called "apps"
@@ -102,6 +110,10 @@ $(addprefix user-,$(USER_PROGRAMS)): user-%:
 	@if [ "$*" = shell ]; then cp $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/shell_elf; fi
 	@echo Linking user program $*...
 user-apps: $(addprefix user-,$(USER_PROGRAMS))
+shell_elf: user-shell
+
+shell-module-sources:
+	@printf '%s\n' $(addprefix $(SOURCE_FOLDER)/,$(SHELL_MODULE_SOURCES))
 
 # Host program, so read/write/delete are renamed away from the C library ones.
 inserter:
@@ -109,10 +121,10 @@ inserter:
 	@$(CC) -std=gnu11 -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \
 		$(SOURCE_FOLDER)/external/external-inserter.c $(SOURCE_FOLDER)/filesystem/ext2.c -o $(OUTPUT_FOLDER)/inserter
 
-insert-shell: user-shell inserter
+insert-shell: user-shell inserter | disk
 	@./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/shell 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin
 
-insert-apps: user-apps inserter
+insert-apps: user-apps inserter | disk
 	@for p in $(USER_PROGRAMS); do \
 		./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
 	done

@@ -2,11 +2,12 @@
 
 | File | Isi |
 | --- | --- |
-| `src/user/shell.h` | Kontrak untuk E: `ShellIO`, tipe command, API CWD, resolusi path |
+| `src/user/shell.h` | `ShellIO`, tipe command, API CWD, dan resolusi path |
 | `src/user-shell.c` | REPL, pembaca baris, tabel command, CWD, resolusi path |
 | `src/user/shell-parser.c` | Memecah baris menjadi argumen dan tahap pipeline |
 | `src/user/shell-pipeline.c` | Dispatch dan buffer keluaran antar-tahap |
-| `src/user/command/search.c` | Command `grep` |
+| `src/user/command/` | Navigasi, operasi file, pencarian, dan command proses |
+| `src/user/fsutil.c` | Fungsi filesystem yang dipakai bersama oleh perintah shell |
 | `src/user/syscall.h`, `syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
 | `tests/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
 | `tests/host/shell_test.c` | Test H01–H17 |
@@ -46,7 +47,7 @@ Contoh `cat a | grep x`:
 
 | Karakter | Perlakuan |
 | --- | --- |
-| `0x20`–`0x7E` | Disimpan dan di-echo, sampai 127 karakter |
+| `0x20`–`0x7E` | Disimpan dan di-echo, sampai 127 karakter. Masukan yang melewati batas dibatalkan saat Enter. |
 | `'\b'` | Menghapus satu karakter bila baris tidak kosong |
 | `'\n'` | Mengakhiri baris |
 | Lainnya (panah, Tab, Esc) | Diabaikan |
@@ -98,19 +99,19 @@ Tidak ada syscall untuk mencari inode, jadi `dir_child` memakai sifat filesystem
 | Bentuk | Perilaku |
 | --- | --- |
 | `grep POLA` | Membaca keluaran stage sebelumnya; stage pertama: `grep: no input` |
-| `grep POLA FILE` | Membaca file (maksimal 16 KiB), relatif terhadap CWD |
+| `grep POLA FILE` | Membaca file (maksimal 64 KiB), relatif terhadap CWD |
 | Jumlah argumen lain | `usage: grep PATTERN [FILE]` |
 
 Bila FILE diberikan, masukan dari pipeline diabaikan. Pencocokan memakai substring biasa dan case-sensitive. Baris yang cocok ditulis utuh dengan `'\n'`, termasuk baris terakhir yang tidak punya `'\n'`. Tidak ada baris yang cocok bukan error.
 
 | Kode `read` | Pesan |
 | --- | --- |
-| 1 | `grep: FILE: not a file` |
+| 1 | `grep: FILE: is a directory` |
 | 2 | `grep: FILE: file too large` |
 | 3, atau path gagal di-resolve | `grep: FILE: not found` |
 | Lainnya | `grep: FILE: read failed` |
 
-`read` tidak mengembalikan ukuran file. Karena itu buffer dikosongkan dulu, lalu panjangnya dihitung dari byte bukan nol terakhir. Akibatnya, byte NUL di akhir file ikut terbuang.
+`grep` memakai pembaca file yang sama dengan `cat` dan mempertahankan panjang file sesuai data EXT2. Hasil yang cocok tetap tunduk pada batas 16 KiB per tahap pipeline.
 
 ## Panduan menulis command (untuk E)
 
@@ -198,9 +199,9 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 
 | Batasan | Nilai | Akibat |
 | --- | --- | --- |
-| Panjang baris | 127 karakter | Ketikan berikutnya diabaikan |
+| Panjang baris | 127 karakter | Shell menolak seluruh baris bila batas terlewati |
 | Keluaran per stage | 16 KiB | Lebih dari itu: `pipeline: output too large`, tanpa keluaran parsial |
-| Ukuran file `grep` | 16 KiB | `file too large` |
+| Ukuran file `grep` | 64 KiB | `file too large` |
 | Ukuran folder yang bisa dimasuki | 16 KiB (32 blok) | Folder lebih besar dianggap tidak ada |
 | Panjang path | 255 karakter | `shell_resolve_dir` gagal |
 | Tanda kutip | Tidak didukung | Argumen tidak bisa berisi spasi atau `\|` |
@@ -211,9 +212,8 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 Bagian ini awalnya milik A (build user, loader) dan C (penyambungan syscall). Karena anggota lain tidak bisa dihubungi, bagian ini dikerjakan oleh D.
 
 ```bash
-test -f bin/storage.bin || make disk
 make all insert-shell
-qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+qemu-system-i386 -m 128M -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -boot order=d
 ```
 
 | Target `make` | Hasil |
@@ -223,7 +223,7 @@ qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=dis
 | `insert-shell` | Memasukkan `bin/shell` ke root `bin/storage.bin`, menimpa versi lama |
 | `run` | Sekarang juga menjalankan `insert-shell` |
 
-`inserter <file> <parent_inode> <storage.bin>` bisa dipakai untuk file lain. Nama entrinya diambil dari nama file, dan area swap di belakang 4 MiB pertama tidak disentuh.
+`inserter <file-atau-folder> <parent_inode> <storage.bin>` menggunakan nama dasar input sebagai nama entri. Folder disalin rekursif ke folder baru. Folder tujuan yang sudah ada dan symbolic link ditolak. Inserter bekerja pada 4 MiB pertama ketika QEMU berhenti.
 
 ### Alur boot
 
@@ -255,7 +255,7 @@ int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
 Hal yang perlu diingat:
 
 - **Semua halaman dipetakan di awal.** `syscall_validate_user_range` hanya menerima halaman yang present, jadi buffer `.bss` tidak bisa menunggu page fault handler. Halaman baru selalu dikosongkan, sehingga `.bss` otomatis nol.
-- **Ukuran gambar program tetap 256 KiB.** `USER_IMAGE_SIZE` di `src/kernel.c` dan `ASSERT` di `user-linker.ld` harus sama. Build gagal bila program melewati batas ini. Saat ini shell memakai sekitar 4 KB kode dan 41 KB `.bss`.
+- **Ukuran gambar program tetap 256 KiB.** `USER_IMAGE_SIZE` di `src/kernel.c` dan `ASSERT` di `user-linker.ld` harus sama. Build gagal bila program melewati batas ini. Periksa ukuran aktual dengan `size bin/shell_elf`.
 - **Kalau `main` selesai, program berputar di `_start`**, karena syscall `exit` baru ada di Milestone 4.
 - **Kalau `/shell` tidak ada**, kernel menulis `tapOS: /shell not found, run: make insert-shell` lalu berhenti.
 
@@ -278,7 +278,7 @@ Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `test
 | Q07 | Pesan error parser |
 | Q08 | Prompt kembali setelah semua perintah |
 
-Layar terakhir disimpan di `bin/shell-qemu/screen.txt`. Langkah 5 dan 6 acceptance (`cat | grep`, prompt berubah setelah `cd`) menunggu command E.
+Q09–Q18 mencakup CRUD, pipeline `cat | grep`, perubahan CWD, persistensi setelah reboot, dan hasil impor folder. Layar dan log disimpan di `bin/shell-qemu-128/` secara default. Gunakan `bash tests/qemu/run_shell_qemu.sh 5` untuk menjalankan suite dengan RAM 5 MiB.
 
 ### Catatan untuk kode kernel
 

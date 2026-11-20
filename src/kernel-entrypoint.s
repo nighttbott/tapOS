@@ -69,6 +69,8 @@ loader_virtual:
     mov eax, cr3
     mov cr3, eax
     mov esp, kernel_stack + KERNEL_STACK_SIZE ; Setup stack register to proper location
+    and esp, -16
+    cld
     call kernel_setup
 .loop:
     jmp .loop                                 ; loop forever

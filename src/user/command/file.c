@@ -129,8 +129,10 @@ static bool find_source(struct ShellIO *io, const char *cmd, const char *verb, c
  */
 static bool put_file(struct ShellIO *io, const char *cmd, const char *src_path,
                      const struct FsuTarget *src, const struct FsuDest *dest) {
+    static char previous_data[FSU_FILE_MAX];
     const char *data;
     uint32_t size;
+    uint32_t previous_size = 0;
     uint32_t existing;
     uint8_t type;
     bool exists = fsu_lookup(dest->parent, dest->name, &existing, &type) == 0;
@@ -143,6 +145,13 @@ static bool put_file(struct ShellIO *io, const char *cmd, const char *src_path,
         fsu_error(io, cmd, dest->shown, "is a directory");
         return false;
     }
+    if (exists) {
+        if (fsu_read_file(dest->parent, dest->name, &data, &previous_size) != 0) {
+            fsu_error(io, cmd, dest->shown, "cannot back up existing file");
+            return false;
+        }
+        memcpy(previous_data, data, previous_size);
+    }
     if (fsu_read_file(src->parent, src->name, &data, &size) != 0) {
         fsu_error(io, cmd, src_path, "cannot read (larger than 64 KiB?)");
         return false;
@@ -151,11 +160,16 @@ static bool put_file(struct ShellIO *io, const char *cmd, const char *src_path,
         fsu_error(io, cmd, dest->shown, "cannot replace");
         return false;
     }
-    if (fsu_write_file(dest->parent, dest->name, data, size, false) != 0) {
-        fsu_error(io, cmd, dest->shown, "cannot write (disk full?)");
+    if (fsu_write_file(dest->parent, dest->name, data, size, false) == 0)
+        return true;
+
+    if (exists && fsu_write_file(dest->parent, dest->name, previous_data,
+                                 previous_size, false) != 0) {
+        fsu_error(io, cmd, dest->shown, "cannot write or restore existing file");
         return false;
     }
-    return true;
+    fsu_error(io, cmd, dest->shown, "cannot write (disk full?)");
+    return false;
 }
 
 /* Copies folder src to dest. Returns true, or writes the error and returns false. */

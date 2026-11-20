@@ -1,47 +1,6 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
-#include "user/shell.h"
-#include "user/syscall.h"
-
-#define GREP_FILE_MAX 16384u
-
-/* Returns NULL on success, otherwise the error message. */
-static const char *read_file(const char *path, char *buffer, uint32_t *len) {
-    char name[SHELL_NAME_MAX + 1];
-    uint32_t parent;
-    struct EXT2DriverRequest request = {
-        .buf = buffer,
-        .name = name,
-        .buffer_size = GREP_FILE_MAX,
-    };
-
-    if (shell_resolve_parent(path, &parent, name) != 0) {
-        return "not found";
-    }
-    request.parent_inode = parent;
-    request.name_len = (uint8_t)shell_strlen(name);
-
-    memset(buffer, 0, GREP_FILE_MAX);
-    switch (sys_read_file(&request)) {
-        case 0:
-            break;
-        case 1:
-            return "not a file";
-        case 2:
-            return "file too large";
-        case 3:
-            return "not found";
-        default:
-            return "read failed";
-    }
-
-    // shortcut: read() does not return the size, so trailing NUL bytes of a file are dropped.
-    *len = GREP_FILE_MAX;
-    while (*len > 0 && buffer[*len - 1] == '\0') {
-        (*len)--;
-    }
-    return NULL;
-}
+#include "user/commands.h"
 
 static bool contains(const char *line, uint32_t len, const char *pattern, uint32_t pattern_len) {
     for (uint32_t i = 0; i + pattern_len <= len; i++) {
@@ -53,7 +12,6 @@ static bool contains(const char *line, uint32_t len, const char *pattern, uint32
 }
 
 int cmd_grep(int argc, char **argv, struct ShellIO *io) {
-    static char file[GREP_FILE_MAX];
     const char *text = io->in;
     uint32_t len = io->in_len;
     uint32_t pattern_len;
@@ -64,7 +22,7 @@ int cmd_grep(int argc, char **argv, struct ShellIO *io) {
         return 1;
     }
     if (argc == 3) {
-        const char *error = read_file(argv[2], file, &len);
+        const char *error = fsu_read_path(argv[2], &text, &len);
         if (error != NULL) {
             shell_out_str(io, "grep: ");
             shell_out_str(io, argv[2]);
@@ -73,7 +31,6 @@ int cmd_grep(int argc, char **argv, struct ShellIO *io) {
             shell_out_str(io, "\n");
             return 1;
         }
-        text = file;
     } else if (text == NULL) {
         shell_out_str(io, "grep: no input\n");
         return 1;

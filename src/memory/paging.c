@@ -166,6 +166,11 @@ bool paging_allocate_user_page_frame(struct PageDirectory *page_dir, void *virtu
     if ((uint32_t) page_addr >= KERNEL_VIRTUAL_ADDRESS_BASE)
         return false;
 
+    struct PageTableEntry *existing = paging_get_page_table_entry(page_dir, page_addr);
+    if (existing != NULL && (existing->flag.present_bit ||
+                             (existing->ignored & PTE_IGNORED_SWAPPED)))
+        return false;
+
     uint32_t page_frame_number = paging_acquire_frame();
     if (page_frame_number == 0)
         return false;
@@ -207,5 +212,19 @@ bool paging_free_user_page_frame(struct PageDirectory *page_dir, void *virtual_a
 
     *entry = (struct PageTableEntry) {0};
     flush_single_tlb(virtual_addr);
+
+    uint32_t directory_index = (uint32_t)virtual_addr >> 22;
+    struct PageTable *table = paging_get_page_table(page_dir, directory_index);
+    for (uint32_t i = 0; i < PAGE_ENTRY_COUNT; i++) {
+        if (table->table[i].flag.present_bit ||
+            (table->table[i].ignored & PTE_IGNORED_SWAPPED))
+            return true;
+    }
+
+    struct PageDirectoryEntry *directory_entry = &page_dir->table[directory_index];
+    uint32_t table_frame = directory_entry->page_table_base_address;
+    *directory_entry = (struct PageDirectoryEntry){0};
+    flush_single_tlb(table);
+    paging_release_frame(table_frame);
     return true;
 }
