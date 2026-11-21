@@ -35,6 +35,12 @@ struct Context {
     struct PageDirectory *page_directory_virtual_addr;
 };
 
+_Static_assert(sizeof(struct CPURegister) == 48, "Context assembly register layout");
+_Static_assert(offsetof(struct Context, eip) == 48, "Context EIP offset");
+_Static_assert(offsetof(struct Context, page_directory_virtual_addr) == 64,
+               "Context page directory offset");
+_Static_assert(sizeof(struct Context) == 68, "Context assembly size");
+
 struct ProcessControlBlock {
     struct {
         uint32_t pid;

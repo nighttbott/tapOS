@@ -18,7 +18,7 @@ SYSTEM_MEMORY_MB ?= 128
 WARNING_CFLAG = -Wall -Wextra -Werror
 DEBUG_CFLAG   = -fshort-wchar -g
 STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffreestanding
-CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -DSYSTEM_MEMORY_MB=$(SYSTEM_MEMORY_MB)
+CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -fno-pie -fno-pic -m32 -c -I$(SOURCE_FOLDER) -DSYSTEM_MEMORY_MB=$(SYSTEM_MEMORY_MB)
 AFLAGS        = -f elf32 -g -F dwarf
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 

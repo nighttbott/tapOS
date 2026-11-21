@@ -25,7 +25,7 @@ struct PageManagerState page_manager_state = {
 
 static struct FrameOwner frame_owner[PAGE_FRAME_MAX_COUNT];
 static struct PageDirectory page_directory_list[PAGING_DIRECTORY_TABLE_MAX_COUNT]
-    __attribute__((aligned(PAGE_FRAME_SIZE)));
+    __attribute__((aligned(PAGE_FRAME_SIZE), section(".bss.page_directory_pool")));
 static bool page_directory_used[PAGING_DIRECTORY_TABLE_MAX_COUNT];
 
 static void paging_set_recursive_entry(struct PageDirectory *page_dir) {
@@ -46,6 +46,13 @@ struct PageDirectory *paging_create_new_page_directory(void) {
             continue;
 
         struct PageDirectory *page_dir = &page_directory_list[i];
+        uint32_t virtual_address = (uint32_t)page_dir;
+        if (virtual_address < KERNEL_VIRTUAL_ADDRESS_BASE)
+            return NULL;
+        uint32_t physical_address = virtual_address - KERNEL_VIRTUAL_ADDRESS_BASE;
+        if ((physical_address & (PAGE_FRAME_SIZE - 1u)) != 0 ||
+            physical_address >= 0x00400000u)
+            return NULL;
         uint32_t kernel_index = KERNEL_VIRTUAL_ADDRESS_BASE >> 22;
         page_dir->table[kernel_index] = _paging_kernel_page_directory.table[kernel_index];
         paging_set_recursive_entry(page_dir);

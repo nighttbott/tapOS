@@ -1,5 +1,5 @@
-; void process_context_switch(struct Context context)
-; cdecl passes the structure by value at [esp+4].
+; void process_context_switch(const struct Context *context)
+; cdecl passes the pointer at [esp+4].
 BITS 32
 global process_context_switch
 
@@ -15,20 +15,36 @@ global process_context_switch
 %define CTX_FS       36
 %define CTX_ES       40
 %define CTX_DS       44
-%define CTX_EIP      64
-%define CTX_EFLAGS   68
-%define CTX_CS       72
-%define CTX_SS       76
-%define CTX_PAGE_DIR 80
+%define CTX_EIP      48
+%define CTX_EFLAGS   52
+%define CTX_CS       56
+%define CTX_SS       60
+%define CTX_PAGE_DIR 64
+%define CTX_SIZE     68
 
 section .text
 process_context_switch:
     cli
     mov esi, [esp + 4]
 
+    ; Copy Context before changing CR3: the PCB pointer may not be mapped by
+    ; the destination process. Keep the copy on the shared kernel stack.
+    cld
+    sub esp, CTX_SIZE
+    mov edi, esp
+    mov ecx, CTX_SIZE / 4
+    rep movsd
+    mov esi, esp
+
     ; Context stores a higher-half virtual address; CR3 needs its physical address.
     mov eax, [esi + CTX_PAGE_DIR]
+    cmp eax, 0xC0000000
+    jb .invalid_context
     sub eax, 0xC0000000
+    test eax, 0xFFF
+    jnz .invalid_context
+    cmp eax, 0x00400000
+    jae .invalid_context
     mov cr3, eax
 
     ; Prepare the privilege-return frame on the shared kernel interrupt stack.
@@ -55,3 +71,10 @@ process_context_switch:
     mov eax, [esi + CTX_EAX]
     mov esi, [esi + CTX_ESI]
     iretd
+
+.invalid_context:
+    ; Fail closed rather than load a corrupt CR3 and escalate to #PF/#DF.
+    cli
+.halt:
+    hlt
+    jmp .halt

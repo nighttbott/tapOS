@@ -45,7 +45,7 @@ void scheduler_switch_to_next_process(void) {
         __asm__ volatile("cli");
         for (;;) __asm__ volatile("hlt");
     }
-    process_context_switch(next->context);
+    process_context_switch(&next->context);
 }
 
 void scheduler_handle_timer(struct InterruptFrame *frame) {

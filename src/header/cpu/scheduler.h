@@ -4,7 +4,7 @@
 #include "header/process/process.h"
 
 /* Assembly restores this user context and returns with iret. */
-__attribute__((noreturn)) void process_context_switch(struct Context context);
+__attribute__((noreturn)) void process_context_switch(const struct Context *context);
 
 void scheduler_init(void);
 void scheduler_save_context_to_current_running_pcb(struct Context context);
