@@ -7,6 +7,7 @@
 #include "header/text/framebuffer.h"
 #include "header/kernel-entrypoint.h"
 #include "header/process/process.h"
+#include "header/cpu/scheduler.h"
 
 __attribute__((noreturn))
 static void halt_with_message(const char *text) {
@@ -41,5 +42,6 @@ void kernel_setup(void) {
     struct ProcessControlBlock *init = process_lookup(PROCESS_INIT_PID);
     process_set_running(init);
     paging_use_page_directory(init->context.page_directory_virtual_addr);
+    scheduler_init();
     enter_user_mode((void *)init->context.eip, (void *)init->context.cpu.stack.esp);
 }

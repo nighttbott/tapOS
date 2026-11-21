@@ -7,8 +7,10 @@
 #include "header/text/framebuffer.h"
 #include "header/memory/swap.h"
 #include "header/cpu/syscall.h"
+#include "header/cpu/scheduler.h"
 
 struct TaskStateSegment _tss;
+static volatile uint32_t pit_ticks;
 
 void tss_set_kernel_stack(void *stack_top) {
     _tss.esp0 = (uint32_t)stack_top;
@@ -17,6 +19,20 @@ void tss_set_kernel_stack(void *stack_top) {
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
+}
+
+void pit_initialize(uint16_t divisor) {
+    if (divisor == 0)
+        return;
+    pit_ticks = 0;
+    out(0x43, 0x36); 
+    out(0x40, (uint8_t)(divisor & 0xFFu));
+    out(0x40, (uint8_t)(divisor >> 8));
+    out(PIC1_DATA, in(PIC1_DATA) & ~(1u << IRQ_TIMER));
+}
+
+uint32_t pit_get_ticks(void) {
+    return pit_ticks;
 }
 
 void io_wait(void) {
@@ -103,8 +119,14 @@ void main_interrupt_handler(struct InterruptFrame *frame) {
         exception_panic(frame);
 
     switch (frame->int_number) {
+        case PIC1_OFFSET + IRQ_TIMER:
+            ++pit_ticks;
+            pic_ack(IRQ_TIMER);
+            scheduler_handle_timer(frame);
+            break;
         case PIC1_OFFSET + IRQ_KEYBOARD:
             keyboard_isr();
+            pic_ack(IRQ_KEYBOARD);
             break;
         case SYSCALL_VECTOR:
             syscall_dispatch(frame);

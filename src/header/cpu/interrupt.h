@@ -139,6 +139,8 @@ _Static_assert(offsetof(struct UserInterruptFrame, ss) == 72, "Ring 3 SS offset"
 
 // Activate PIC mask for keyboard only
 void activate_keyboard_interrupt(void);
+void pit_initialize(uint16_t divisor);
+uint32_t pit_get_ticks(void);
 
 // I/O port wait, around 1-4 microsecond, for I/O synchronization purpose
 void io_wait(void);
