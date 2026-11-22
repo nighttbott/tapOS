@@ -105,11 +105,37 @@ static void syscall_write_char(char character) {
         console_col = 0;
         console_row++;
     }
-    if (console_row >= FRAMEBUFFER_HEIGHT) {
-        framebuffer_scroll_up();
-        console_row = FRAMEBUFFER_HEIGHT - 1u;
+    if (console_row >= FRAMEBUFFER_HEIGHT - 1u) {
+        for (uint8_t row = 1; row < FRAMEBUFFER_HEIGHT - 1u; ++row) {
+            for (uint8_t col = 0; col < FRAMEBUFFER_WIDTH; ++col) {
+                uint32_t source = ((uint32_t)row * FRAMEBUFFER_WIDTH + col) * 2u;
+                framebuffer_write(row - 1u, col,
+                    FRAMEBUFFER_MEMORY_OFFSET[source],
+                    FRAMEBUFFER_MEMORY_OFFSET[source + 1u] & 0x0Fu,
+                    FRAMEBUFFER_MEMORY_OFFSET[source + 1u] >> 4);
+            }
+        }
+        for (uint8_t col = 0; col < FRAMEBUFFER_WIDTH; ++col)
+            framebuffer_write(FRAMEBUFFER_HEIGHT - 2u, col, ' ', 0x0F, 0x00);
+        console_row = FRAMEBUFFER_HEIGHT - 2u;
     }
     framebuffer_set_cursor(console_row, console_col);
+}
+
+static int32_t syscall_write_status(const char *buffer, uint32_t size,
+                                    uint32_t column) {
+    if (column > FRAMEBUFFER_WIDTH || size > FRAMEBUFFER_WIDTH - column ||
+        !syscall_validate_user_range(buffer, size, false))
+        return -1;
+
+    for (uint32_t i = 0; i < size; ++i) {
+        char character = buffer[i];
+        if (character == '\n' || character == '\r' || character == '\b')
+            character = ' ';
+        framebuffer_write(FRAMEBUFFER_HEIGHT - 1u, column + i,
+                          character, 0x0F, 0x01);
+    }
+    return (int32_t)size;
 }
 
 static int32_t syscall_write_text(const char *buffer, uint32_t size) {
@@ -179,6 +205,11 @@ void syscall_dispatch(struct InterruptFrame *frame) {
         case SYSCALL_READ_CHAR:
             result = syscall_read_char((char *)argument,
                                        frame->cpu.general.ecx);
+            break;
+        case SYSCALL_WRITE_STATUS:
+            result = syscall_write_status((const char *)argument,
+                                          frame->cpu.general.ecx,
+                                          frame->cpu.general.edx);
             break;
         case SYSCALL_READ_FILE:
             if (syscall_copy_request(argument, &request, true) == 0) {
