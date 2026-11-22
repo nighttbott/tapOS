@@ -70,6 +70,11 @@ int cmd_exec(int argc, char **argv, struct ShellIO *io) {
         case 1:
             shell_out_str(io, "exec: too many processes\n");
             return 1;
+        case 2:
+            shell_out_str(io, "exec: ");
+            shell_out_str(io, argv[1]);
+            shell_out_str(io, ": not an executable\n");
+            return 1;
         case 3:
             shell_out_str(io, "exec: not enough memory\n");
             return 1;

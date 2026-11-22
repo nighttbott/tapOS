@@ -180,7 +180,7 @@ Aturan:
 
 | Command | Perilaku | Pesan |
 | --- | --- | --- |
-| `exec PATH` | Path relatif terhadap CWD (`exec /hello` dari folder lain). Shell tidak menunggu programnya selesai | `exec: started NAME (PID n)`; kode 1 `exec: too many processes`; 3 `exec: not enough memory`; 4 atau path gagal `exec: PATH: not found`; lainnya `exec: invalid request` |
+| `exec PATH` | Path relatif terhadap CWD (`exec /hello` dari folder lain). Shell tidak menunggu programnya selesai | `exec: started NAME (PID n)`; kode 1 `exec: too many processes`; 2 `exec: PATH: not an executable` (bukan ELF yang valid); 3 `exec: not enough memory`; 4 atau path gagal `exec: PATH: not found`; lainnya `exec: invalid request` |
 | `ps` | Tabel `PID  STATE    NAME`, satu baris per proses. Lebar kolom PID 5, STATE 9 | Kernel gagal: `ps: cannot read the process list` |
 | `kill PID` | Desimal saja. Berhasil tanpa pesan | `kill: PID: no such process`; `kill: cannot kill init (PID 1)`; angka tidak valid `usage: kill PID` |
 
