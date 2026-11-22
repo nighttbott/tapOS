@@ -1,7 +1,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "header/cpu/scheduler.h"
 #include "header/cpu/syscall.h"
+#include "header/driver/cmos.h"
 #include "header/driver/keyboard.h"
 #include "header/filesystem/ext2.h"
 #include "header/memory/paging.h"
@@ -9,6 +11,9 @@
 #include "header/process/process.h"
 #include "header/text/framebuffer.h"
 #include "header/stdlib/string.h"
+
+_Static_assert(SYSCALL_PROCESS_NAME_MAX == PROCESS_NAME_LENGTH_MAX,
+               "ps name field must match the PCB name length");
 
 static uint8_t console_row;
 static uint8_t console_col;
@@ -159,6 +164,63 @@ static int32_t syscall_copy_request(uint32_t user_request,
     return 0;
 }
 
+/* The caller's address space is freed from the kernel directory, then the next process runs. */
+__attribute__((noreturn))
+static void syscall_exit_current(int32_t code) {
+    struct ProcessControlBlock *current = process_get_current_running_pcb_pointer();
+    uint32_t pid = current->metadata.pid;
+
+    if (pid == PROCESS_INIT_PID) {
+        kernel_halt("tapOS: init exited");
+    }
+    syscall_unpin_pages();
+    process_terminate(pid, code);
+    paging_use_page_directory(&_paging_kernel_page_directory);
+    process_reap(pid);
+    scheduler_switch_to_next_process();
+}
+
+static int32_t syscall_kill(uint32_t pid) {
+    struct ProcessControlBlock *target;
+
+    if (pid == PROCESS_INIT_PID) {
+        return 2;
+    }
+    target = process_lookup(pid);
+    if (target == NULL || (target->metadata.state != PROCESS_READY &&
+                           target->metadata.state != PROCESS_RUNNING)) {
+        return 1;
+    }
+    if (target == process_get_current_running_pcb_pointer()) {
+        syscall_exit_current(0);
+    }
+    return process_destroy(pid) ? 0 : 1;
+}
+
+static int32_t syscall_process_list(struct SyscallProcessInfo *out, uint32_t capacity) {
+    uint32_t count = 0;
+
+    if (capacity > PROCESS_COUNT_MAX) {
+        capacity = PROCESS_COUNT_MAX;
+    }
+    if (!syscall_validate_user_range(out, capacity * sizeof(*out), true)) {
+        return -1;
+    }
+    for (uint32_t i = 0; i < PROCESS_COUNT_MAX && count < capacity; i++) {
+        const struct ProcessControlBlock *pcb = &_process_list[i];
+        if (pcb->metadata.state != PROCESS_READY && pcb->metadata.state != PROCESS_RUNNING) {
+            continue;
+        }
+        struct SyscallProcessInfo info = {
+            .pid = pcb->metadata.pid,
+            .state = (uint32_t)pcb->metadata.state,
+        };
+        memcpy(info.name, pcb->metadata.name, SYSCALL_PROCESS_NAME_MAX - 1u);
+        memcpy(&out[count++], &info, sizeof(info));
+    }
+    return (int32_t)count;
+}
+
 void syscall_dispatch(struct InterruptFrame *frame) {
     struct EXT2DriverRequest request;
     uint32_t service;
@@ -215,6 +277,23 @@ void syscall_dispatch(struct InterruptFrame *frame) {
                 *user_pid = pid;
             break;
         }
+        case SYSCALL_EXIT:
+            syscall_exit_current((int32_t)argument);
+        case SYSCALL_KILL:
+            result = syscall_kill(argument);
+            break;
+        case SYSCALL_PROCESS_LIST:
+            result = syscall_process_list((struct SyscallProcessInfo *)argument,
+                                          frame->cpu.general.ecx);
+            break;
+        case SYSCALL_GET_TIME:
+            if (syscall_validate_user_range((void *)argument, sizeof(struct CMOSTime), true)) {
+                struct CMOSTime now;
+                cmos_read_time(&now);
+                memcpy((void *)argument, &now, sizeof(now));
+                result = 0;
+            }
+            break;
         case SYSCALL_READ_DIRECTORY_BLOCK:
             if (syscall_validate_user_range((void *)frame->cpu.general.edx, BLOCK_SIZE, true))
                 result = ext2_read_directory_block(argument, frame->cpu.general.ecx,

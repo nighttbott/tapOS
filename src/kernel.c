@@ -9,14 +9,6 @@
 #include "header/process/process.h"
 #include "header/cpu/scheduler.h"
 
-__attribute__((noreturn))
-static void halt_with_message(const char *text) {
-    for (uint8_t col = 0; text[col] != '\0'; col++)
-        framebuffer_write(0, col, text[col], 0x0F, 0x00);
-    while (true)
-        __asm__ volatile("hlt");
-}
-
 void kernel_setup(void) {
     load_gdt(&_gdt_gdtr);
     paging_initialize();
@@ -33,11 +25,11 @@ void kernel_setup(void) {
     process_initialize();
     int32_t status = process_create_init();
     if (status == PROCESS_CREATE_FAIL_NOT_ENOUGH_MEMORY)
-        halt_with_message("tapOS: out of memory for /shell");
+        kernel_halt("tapOS: out of memory for /shell");
     if (status == PROCESS_CREATE_FAIL_INVALID_ENTRYPOINT)
-        halt_with_message("tapOS: /shell is empty or exceeds the user image limit");
+        kernel_halt("tapOS: /shell is empty or exceeds the user image limit");
     if (status != PROCESS_CREATE_SUCCESS)
-        halt_with_message("tapOS: cannot load /shell, run: make insert-shell");
+        kernel_halt("tapOS: cannot load /shell, run: make insert-shell");
 
     struct ProcessControlBlock *init = process_lookup(PROCESS_INIT_PID);
     process_set_running(init);

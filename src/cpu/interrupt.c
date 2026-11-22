@@ -35,6 +35,15 @@ uint32_t pit_get_ticks(void) {
     return pit_ticks;
 }
 
+__attribute__((noreturn))
+void kernel_halt(const char *text) {
+    __asm__ volatile("cli");
+    for (uint8_t col = 0; text[col] != '\0' && col < FRAMEBUFFER_WIDTH; col++)
+        framebuffer_write(0, col, text[col], 0x0F, 0x00);
+    while (true)
+        __asm__ volatile("hlt");
+}
+
 void io_wait(void) {
     out(0x80, 0);
 }
