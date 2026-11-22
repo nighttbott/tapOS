@@ -64,24 +64,35 @@ class QemuShell:
             time.sleep(0.2)
         return False
 
-    def type_text(self, text):
+    def type_text(self, text, pause=0.05):
+        """The keyboard holds one character, so with many busy processes (each shell turn comes
+        around every 10 ms times their number) the pause between keys has to grow with them."""
         for ch in text:
             key = KEYS.get(ch)
             if key is None:
                 key = ch if not ch.isupper() else "shift-" + ch.lower()
             self.command("sendkey " + key + " 35")
-            time.sleep(0.05)
+            time.sleep(pause)
 
-    def run(self, line, settle=0.5):
+    def run(self, line, settle=0.5, timeout=5.0, pause=0.05):
         """Types line and returns the console rows printed after it, up to the last row (the next prompt).
-        The typed row is found by its ending, because output of another process may take the prompt's place."""
-        self.type_text(line + "\n")
+        The typed row is found by its ending, because output of another process may take the prompt's place.
+        The screen is read again until a prompt follows the typed row, so a read taken mid-scroll
+        or before a slow command finishes is not mistaken for the answer."""
+        self.type_text(line + "\n", pause)
         time.sleep(settle)
-        rows = [r for r in self.screen()[:self.console_rows] if r]
-        typed = [i for i, r in enumerate(rows) if r.endswith(line)]
-        if not typed:
-            return None
-        return rows[typed[-1] + 1:-1]
+        end = time.time() + timeout
+        while True:
+            rows = [r for r in self.screen()[:self.console_rows] if r]
+            typed = [i for i, r in enumerate(rows) if r.endswith(line)]
+            if not typed:
+                if time.time() >= end:
+                    return None
+            elif typed[-1] < len(rows) - 1 and rows[-1].startswith("tapOS:"):
+                return rows[typed[-1] + 1:-1]
+            elif time.time() >= end:
+                return rows[typed[-1] + 1:-1]
+            time.sleep(0.2)
 
     def save_screen(self, name="screen.txt"):
         with open(os.path.join(self.out, name), "w") as f:
