@@ -67,6 +67,14 @@ void paging_use_page_directory(struct PageDirectory *page_dir) {
     __asm__ volatile("mov %0, %%cr3" : : "r"(physical_addr) : "memory");
 }
 
+struct PageDirectory *paging_enter_page_directory(struct PageDirectory *page_dir) {
+    struct PageDirectory *previous = paging_get_current_page_directory_addr();
+
+    if (previous != page_dir)
+        paging_use_page_directory(page_dir);
+    return previous;
+}
+
 bool paging_free_page_directory(struct PageDirectory *page_dir) {
     struct PageDirectory *previous = paging_get_current_page_directory_addr();
     if (page_dir == previous)

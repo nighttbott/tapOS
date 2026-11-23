@@ -110,6 +110,14 @@ struct PageTableEntry *paging_get_page_table_entry(struct PageDirectory *page_di
 struct PageDirectory *paging_create_new_page_directory(void);
 bool paging_free_page_directory(struct PageDirectory *page_dir);
 void paging_use_page_directory(struct PageDirectory *page_dir);
+/**
+ * Page tables are reachable only through the recursive window of the active directory, so work
+ * on another directory switches to it for a moment. The kernel half is the same everywhere,
+ * so kernel code, data and stack keep working.
+ *
+ * @return The directory that was active, to be given back to paging_use_page_directory
+ */
+struct PageDirectory *paging_enter_page_directory(struct PageDirectory *page_dir);
 struct PageDirectory *paging_get_current_page_directory_addr(void);
 
 /**

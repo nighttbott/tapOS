@@ -83,6 +83,8 @@ bool swap_in(struct PageDirectory *page_dir, void *virtual_addr) {
 }
 
 bool swap_replace_page(void) {
+    struct PageDirectory *active = paging_get_current_page_directory_addr();
+
     for (uint32_t step = 0; step < 2u * PAGE_FRAME_MAX_COUNT; step++) {
         uint32_t page_frame_number = clock_hand;
         const struct FrameOwner *owner = paging_get_frame_owner(page_frame_number);
@@ -93,15 +95,29 @@ bool swap_replace_page(void) {
         if (owner == NULL || owner->page_dir == NULL)
             continue;
 
-        struct PageTableEntry *entry = paging_get_page_table_entry(owner->page_dir, owner->virtual_addr);
-        if (entry == NULL || (entry->ignored & PTE_IGNORED_PINNED))
-            continue;
-        if (entry->flag.accessed_bit) {
-            entry->flag.accessed_bit = false;
-            flush_single_tlb(owner->virtual_addr);
-            continue;
+        // swap_out clears the owner, so keep a copy
+        struct PageDirectory *page_dir = owner->page_dir;
+        void *virtual_addr = owner->virtual_addr;
+        bool chosen = false;
+        bool swapped = false;
+
+        // The page may belong to another process: its page table is reachable only while its
+        // directory is active, and swap_out reads the page through its own mapping.
+        paging_enter_page_directory(page_dir);
+        struct PageTableEntry *entry = paging_get_page_table_entry(page_dir, virtual_addr);
+        if (entry != NULL && !(entry->ignored & PTE_IGNORED_PINNED)) {
+            if (entry->flag.accessed_bit) {
+                entry->flag.accessed_bit = false;
+                flush_single_tlb(virtual_addr);
+            } else {
+                chosen = true;
+                swapped = swap_out(page_dir, virtual_addr);
+            }
         }
-        return swap_out(owner->page_dir, owner->virtual_addr);
+        paging_use_page_directory(active);
+
+        if (chosen)
+            return swapped;
     }
     return false;
 }
