@@ -58,6 +58,11 @@ void framebuffer_clear(void);
 
 void framebuffer_scroll_up(void);
 
+/**
+ * Hides the cursor marker. It comes back the next time framebuffer_set_cursor() is called.
+ */
+void framebuffer_hide_cursor(void);
+
 #ifndef FRAMEBUFFER_TEST
 /**
  * Tries to switch the display from text mode 3h to the 640x400 colour graphics mode.

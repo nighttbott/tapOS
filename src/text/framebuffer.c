@@ -15,6 +15,8 @@ static uint8_t cursor_row;
 static uint8_t cursor_col;
 
 static void draw_cell(uint8_t row, uint8_t col) {
+    if (row >= FRAMEBUFFER_HEIGHT || col >= FRAMEBUFFER_WIDTH)
+        return;   /* the hidden cursor is parked outside the grid */
     uint32_t index = ((uint32_t) row * FRAMEBUFFER_WIDTH + col) * 2U;
     uint8_t character = framebuffer_cells[index];
     if (character == 0)   /* text mode draws NUL as a blank, the font's glyph 0 is a symbol */
@@ -41,6 +43,21 @@ bool framebuffer_enable_graphics(void) {
 }
 #endif
 
+void framebuffer_hide_cursor(void) {
+#ifndef FRAMEBUFFER_TEST
+    if (graphics_active) {
+        uint8_t old_row = cursor_row;
+        uint8_t old_col = cursor_col;
+        cursor_row = FRAMEBUFFER_HEIGHT;   /* no cell is the cursor cell */
+        cursor_col = FRAMEBUFFER_WIDTH;
+        draw_cell(old_row, old_col);
+        return;
+    }
+#endif
+    out(CURSOR_PORT_CMD, 0x0A);
+    out(CURSOR_PORT_DATA, 0x20);   /* cursor disable bit of the VGA text cursor */
+}
+
 void framebuffer_set_cursor(uint8_t r, uint8_t c) {
     uint16_t position;
 
@@ -61,6 +78,8 @@ void framebuffer_set_cursor(uint8_t r, uint8_t c) {
 #endif
 
     position = (uint16_t) r * FRAMEBUFFER_WIDTH + c;
+    out(CURSOR_PORT_CMD, 0x0A);
+    out(CURSOR_PORT_DATA, in(CURSOR_PORT_DATA) & (uint8_t) ~0x20u);   /* show it again if it was hidden */
     out(CURSOR_PORT_CMD, 0x0F);
     out(CURSOR_PORT_DATA, (uint8_t) position);
     out(CURSOR_PORT_CMD, 0x0E);
