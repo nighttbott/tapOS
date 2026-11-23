@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include "header/memory/paging.h"
 #include "header/memory/swap.h"
+#include "header/driver/graphics.h"
 #include "header/stdlib/string.h"
 
 /**
@@ -55,6 +56,9 @@ struct PageDirectory *paging_create_new_page_directory(void) {
             return NULL;
         uint32_t kernel_index = KERNEL_VIRTUAL_ADDRESS_BASE >> 22;
         page_dir->table[kernel_index] = _paging_kernel_page_directory.table[kernel_index];
+        /* The graphics framebuffer mapping must be visible from every address space. */
+        uint32_t graphics_index = GRAPHICS_VIRTUAL_BASE >> 22;
+        page_dir->table[graphics_index] = _paging_kernel_page_directory.table[graphics_index];
         paging_set_recursive_entry(page_dir);
         page_directory_used[i] = true;
         return page_dir;

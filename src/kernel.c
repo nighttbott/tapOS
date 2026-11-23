@@ -15,6 +15,7 @@ void kernel_setup(void) {
     pic_remap();
     initialize_idt();
     activate_keyboard_interrupt();
+    framebuffer_enable_graphics();
     framebuffer_clear();
     framebuffer_set_cursor(0, 0);
     initialize_filesystem_ext2();
