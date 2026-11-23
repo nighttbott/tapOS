@@ -21,7 +21,17 @@ enum SyscallNumber {
     SYSCALL_WRITE_STATUS = 12,
     SYSCALL_READ_DIRECTORY_BLOCK = 13,
     SYSCALL_MOVE = 14,
+    SYSCALL_FIND = 15,
 };
+
+/* SYSCALL_FIND: paths of every entry called `name` in the whole file system, one per line. */
+struct SyscallFindRequest {
+    const char *name;
+    uint8_t     name_len;
+    char       *out;
+    uint32_t    out_size;
+    uint32_t    written;    /* filled in by the kernel */
+} __attribute__((packed));
 
 #define SYSCALL_PROCESS_NAME_MAX 32
 
