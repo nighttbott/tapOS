@@ -26,7 +26,9 @@ def fs_run(shell, line, timeout=30.0):
 shell = QemuShell(*sys.argv[1:4], memory_mb=int(sys.argv[4]), console_rows=25)
 t = Checks()
 try:
-    t.check("Q00", "the boot animation plays first", shell.wait_for("Starting tapOS", 20))
+    # The pixel animation shows the gold "OS" of the logo; the text-cell animation (no pixel mode) writes its own text.
+    t.check("Q00", "the boot animation plays first",
+            shell.picture_has(lambda r, g, b: r > 220 and 120 < g < 200 and b < 80, 400, 20))
     t.check("Q01", "boot shows the prompt", shell.wait_for("tapOS:/$", 20))
 
     shell.type_text("abx\bc\n")
