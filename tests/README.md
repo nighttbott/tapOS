@@ -5,6 +5,7 @@
 | `bash tests/host/run_host_tests.sh` | Runs the real `src/filesystem/ext2.c` on laptop with a fake RAM disk, then health-checks the disk images | ~5 s  |
 | `bash tests/qemu/run_qemu_tests.sh` | Boots small test kernels in QEMU with the real ATA driver; includes two-boot persistence                 | ~15 s |
 | `bash tests/host/run_shell_tests.sh` | Runs the real shell logic in `src/user-shell.c` and `src/user/` on laptop, with mock syscalls on the real `ext2.c`                 | ~5 s  |
+| `bash tests/host/run_index_test.sh` | The file system name index (`src/filesystem/index.c`) on a blank RAM disk with a tiny name pool: add, delete, rebuild, overflow | ~3 s  |
 | `bash tests/qemu/run_shell_qemu.sh` | Boots the real kernel and shell, types commands through the QEMU monitor and checks the screen        | ~15 s |
 | `bash tests/qemu/run_m4_qemu.sh`    | Milestone 4 end to end (P01–P12): `ps`, `exec hello`, clock, `kill`, process limit. Needs `hello.c` and `clock.c` | ~3 min |
 

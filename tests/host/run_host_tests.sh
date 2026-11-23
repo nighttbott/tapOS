@@ -9,7 +9,7 @@ FLAGS="-std=gnu11 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize=al
 
 echo "== build"
 gcc $FLAGS $RENAME \
-    src/filesystem/ext2.c \
+    src/filesystem/ext2.c src/filesystem/index.c \
     tests/common/fs_test.c tests/common/fs_cases.c \
     tests/host/ram_disk.c tests/host/test_main.c \
     -o "$OUT/test_fs" || { echo "BUILD FAILED"; exit 2; }

@@ -1,5 +1,6 @@
 #include <string.h>
 #include "header/user/syscall.h"
+#include "header/filesystem/index.h"
 
 char mock_output[65536];
 uint32_t mock_output_len;
@@ -91,4 +92,13 @@ int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer) {
 
 int32_t sys_move(const struct EXT2MoveRequest *request) {
     return ext2_move(request);
+}
+
+int32_t sys_find(struct SyscallFindRequest *request) {
+    uint32_t written = 0;
+    int32_t result = fs_index_find(request->name, request->name_len, request->out,
+                                   request->out_size, &written);
+
+    request->written = written;
+    return result;
 }
