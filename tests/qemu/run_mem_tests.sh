@@ -27,7 +27,7 @@ genisoimage -R -b boot/grub/grub1 -no-emul-boot -boot-load-size 4 -A os \
     -input-charset utf8 -quiet -boot-info-table -o "$OUT/test.iso" "$OUT/iso" || exit 2
 
 truncate -s 5M "$OUT/disk.bin"
-if [ "$SUITE" = process_suite ]; then
+if [ "$SUITE" = process_suite ] || [ "$SUITE" = syscall_suite ]; then
     nasm -f elf32 tests/qemu/process_fixture.s -o "$OUT/process_fixture.o" || exit 2
     ld -T src/user-linker.ld -melf_i386 -s "$OUT/process_fixture.o" -o "$OUT/app" || exit 2
     make user-shell inserter OUTPUT_FOLDER="$OUT/user" || exit 2

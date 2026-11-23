@@ -89,6 +89,7 @@ try:
     t.check("P08", "kill bad number", shell.run("kill abc") == ["usage: kill PID"])
 
     t.check("P09", "exec missing file", shell.run("exec nothing") == ["exec: nothing: not found"])
+    t.check("P09", "exec of a plain file", shell.run("exec notes") == ["exec: notes: not an executable"])
 
     started = sum(exec_pid("hello") is not None for _ in range(20))
     t.check("P10", "20 x exec hello all start (%d)" % started, started == 20)
@@ -96,8 +97,9 @@ try:
     shell.run("kill %d" % (clock or 0))
     clocks = []
     refused = False
+    SLOW = 0.25  # up to 16 busy processes share the CPU, so the shell reads a key only every ~160 ms
     for _ in range(16):
-        rows = shell.run("exec clock") or []
+        rows = shell.run("exec clock", pause=SLOW) or []
         pid = next((int(m.group(2)) for m in map(STARTED.search, rows) if m), None)
         if pid is None:
             refused = rows == ["exec: too many processes"]
@@ -106,7 +108,7 @@ try:
     t.check("P11", "shell + 15 clocks fit, the 16th is refused (%d started)" % len(clocks),
             len(clocks) == 15 and refused)
     for pid in clocks:
-        shell.run("kill %d" % pid)
+        shell.run("kill %d" % pid, pause=SLOW)
     t.check("P11", "all clocks killed", ps_has("clock") is False)
 
     exec_pid("clock")

@@ -416,6 +416,9 @@ static void proc_cases(void) {
     mock_exec = (struct MockExec) { .result = 1 };
     run_real("exec clock");
     check_output("H19", "code 1", "exec: too many processes\n");
+    mock_exec = (struct MockExec) { .result = 2 };
+    run_real("exec notes");
+    check_output("H19", "code 2", "exec: notes: not an executable\n");
     mock_exec = (struct MockExec) { .result = 3 };
     run_real("exec clock");
     check_output("H19", "code 3", "exec: not enough memory\n");

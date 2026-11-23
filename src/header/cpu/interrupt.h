@@ -153,6 +153,9 @@ void pic_remap(void);
 
 void main_interrupt_handler(struct InterruptFrame *frame);
 
+// Print text on the top row and stop the CPU for good
+__attribute__((noreturn)) void kernel_halt(const char *text);
+
 struct TaskStateSegment {
     uint32_t previous_task;
     uint32_t esp0;
