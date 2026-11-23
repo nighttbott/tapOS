@@ -58,6 +58,18 @@ try:
             fs_run(shell, "rm notes/x") == ["rm: notes/x: not found"])
     fs_run(shell, "mkdir keep")
     fs_run(shell, "cp notes keep/n")
+
+    # Bonus M1: colour pixel graphics instead of text mode 3h (at least 20x60 characters).
+    width, height, picture = shell.pixels()
+    colours = {pixel for row in picture for pixel in row}
+    t.check("Q19", "pixel graphics, at least 20x60 characters",
+            width // 8 >= 60 and height // 16 >= 20)
+    t.check("Q19", "pixels have more than one colour", len(colours) >= 2)
+    # The cursor is one character cell with foreground and background swapped: a solid white block.
+    cursor = any(all(picture[y][x] == (255, 255, 255)
+                     for y in range(cell_y, cell_y + 16) for x in range(cell_x, cell_x + 8))
+                 for cell_y in range(0, height, 16) for cell_x in range(0, width, 8))
+    t.check("Q19", "cursor marker is drawn", cursor)
 finally:
     shell.save_screen()
     shell.close()

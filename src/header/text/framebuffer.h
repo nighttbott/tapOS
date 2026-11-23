@@ -12,7 +12,10 @@
 extern volatile uint8_t framebuffer_test_memory[FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT * 2U];
 #define FRAMEBUFFER_MEMORY_OFFSET framebuffer_test_memory
 #else
-#define FRAMEBUFFER_MEMORY_OFFSET ((volatile uint8_t*) 0xC00B8000)
+/* Character cells in text-mode layout. They are the BIOS text memory until the graphics mode is on,
+ * then a copy in kernel RAM that framebuffer_write() paints onto the pixel framebuffer. */
+extern volatile uint8_t *framebuffer_cells;
+#define FRAMEBUFFER_MEMORY_OFFSET framebuffer_cells
 #endif
 #define CURSOR_PORT_CMD    0x03D4
 #define CURSOR_PORT_DATA   0x03D5
@@ -54,5 +57,16 @@ void framebuffer_set_cursor(uint8_t r, uint8_t c);
 void framebuffer_clear(void);
 
 void framebuffer_scroll_up(void);
+
+#ifndef FRAMEBUFFER_TEST
+/**
+ * Tries to switch the display from text mode 3h to the 640x400 colour graphics mode.
+ * The 80x25 cell grid, colours and cursor keep working; without a supported display
+ * adapter the text mode stays as it was. Call before the first framebuffer_clear().
+ *
+ * @return true when graphics mode is active
+ */
+bool framebuffer_enable_graphics(void);
+#endif
 
 #endif

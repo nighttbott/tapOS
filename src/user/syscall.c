@@ -62,3 +62,7 @@ int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer) {
 int32_t sys_move(const struct EXT2MoveRequest *request) {
     return sys_call(SYSCALL_MOVE, (uint32_t)request, 0, 0);
 }
+
+int32_t sys_find(struct SyscallFindRequest *request) {
+    return sys_call(SYSCALL_FIND, (uint32_t)request, 0, 0);
+}

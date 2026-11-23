@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include "header/stdlib/string.h"
 #include "header/filesystem/ext2.h"
+#include "header/filesystem/index.h"
 
 const uint8_t fs_signature[BLOCK_SIZE] = {
     'C', 'o', 'u', 'r', 's', 'e', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',  ' ',
@@ -130,6 +131,8 @@ void create_ext2(void) {
     struct EXT2Inode root_inode;
     uint32_t used_blocks = EXT2_FIRST_DATA_BLOCK + 1u;
 
+    fs_index_invalidate();
+
     memset(&superblock, 0, sizeof(superblock));
     superblock.s_inodes_count = INODES_PER_GROUP * GROUPS_COUNT;
     superblock.s_blocks_count = EXT2_TOTAL_BLOCKS;
@@ -214,6 +217,8 @@ void create_ext2(void) {
 
 void initialize_filesystem_ext2(void) {
     struct BlockBuffer block;
+
+    fs_index_invalidate();   /* the disk may have been replaced since the index was built */
 
     if (is_empty_storage()) {
         create_ext2();
@@ -1208,6 +1213,7 @@ int8_t delete(struct EXT2DriverRequest request) {
                            request.name_len, entry.inode)) {
         return -1;
     }
+    fs_index_remove(entry.inode);
     deallocate_node(entry.inode);
     return 0;
 }
@@ -1692,6 +1698,8 @@ int8_t write(struct EXT2DriverRequest *request) {
         return -1;
     }
 
+    fs_index_add(request->parent_inode, inode_number, request->name, request->name_len,
+                 is_directory ? EXT2_FT_DIR : EXT2_FT_REG_FILE);
     return 0;
 }
 
@@ -1760,7 +1768,7 @@ static void ext2_set_entry_inode(struct EXT2EntryLocation location, uint32_t ino
     write_blocks(&block, location.block, 1);
 }
 
-int8_t ext2_move(const struct EXT2MoveRequest *request) {
+static int8_t ext2_move_entry(const struct EXT2MoveRequest *request) {
     struct EXT2ReadContext context;
     struct EXT2DirectoryEntry source, destination;
     struct EXT2EntryLocation source_location, destination_location, dotdot;
@@ -1837,4 +1845,13 @@ int8_t ext2_move(const struct EXT2MoveRequest *request) {
     if (result == 0)
         deallocate_node(destination.inode);
     return 0;
+}
+
+int8_t ext2_move(const struct EXT2MoveRequest *request) {
+    int8_t result = ext2_move_entry(request);
+
+    /* A move renames, re-parents or replaces entries in several ways; rebuilding is simpler than patching. */
+    if (result == 0)
+        fs_index_invalidate();
+    return result;
 }

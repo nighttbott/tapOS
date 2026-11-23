@@ -14,7 +14,7 @@ echo "== host build"
 shell_sources=$(make --no-print-directory -s shell-module-sources) || exit 2
 gcc $FLAGS $RENAME -Dmain=shell_main -c src/user-shell.c -o "$OUT/shell.o" || { echo "BUILD FAILED"; exit 2; }
 gcc $FLAGS $RENAME \
-    "$OUT/shell.o" $shell_sources src/filesystem/ext2.c \
+    "$OUT/shell.o" $shell_sources src/filesystem/ext2.c src/filesystem/index.c \
     tests/common/fs_test.c tests/host/ram_disk.c \
     tests/host/shell_mock_syscall.c tests/host/shell_test.c \
     -o "$OUT/test_shell" || { echo "BUILD FAILED"; exit 2; }

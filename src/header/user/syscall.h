@@ -24,4 +24,7 @@ int32_t sys_write_status(const char *buf, uint32_t len, uint32_t col);
 int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer);
 int32_t sys_move(const struct EXT2MoveRequest *request);
 
+/* Number of matches (see header/filesystem/index.h for the negative codes). */
+int32_t sys_find(struct SyscallFindRequest *request);
+
 #endif

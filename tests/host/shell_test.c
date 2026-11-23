@@ -4,6 +4,7 @@
 #include "ram_disk.h"
 #include "header/user/commands.h"
 #include "header/user/shell.h"
+#include "header/filesystem/index.h"
 #include "header/user/syscall.h"
 
 extern char mock_output[];
@@ -907,6 +908,81 @@ static void find_cases(void) {
     check_output("H42", "two arguments", "usage: find NAME\n");
 }
 
+static int compare_lines(const void *a, const void *b) {
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* mock_output as its lines sorted, so two answers can be compared whatever their order. */
+static void sorted_output(char *out, size_t capacity) {
+    char copy[4096];
+    char *lines[64];
+    size_t count = 0;
+
+    snprintf(copy, sizeof(copy), "%s", mock_output);
+    for (char *line = strtok(copy, "\n"); line != NULL && count < 64; line = strtok(NULL, "\n"))
+        lines[count++] = line;
+    qsort(lines, count, sizeof(lines[0]), compare_lines);
+    out[0] = '\0';
+    for (size_t i = 0; i < count; i++) {
+        strncat(out, lines[i], capacity - strlen(out) - 2);
+        strcat(out, "\n");
+    }
+}
+
+static void index_cases(void) {
+    static const char *names[] = {"leaf", "needle", "tail", "fresh", "moved2", "innerfile", "deep.txt"};
+    char before[8][1024];
+    char after[1024];
+    uint32_t written = 0;
+    char small[8];
+
+    run_real("find needle");    /* builds the index if nothing did yet */
+    ram_disk_reads = 0;
+    run_real("find leaf");
+    check("H47", "a lookup reads no disk block", ram_disk_reads == 0 && line_count() == 4);
+
+    write_file(SHELL_ROOT_INODE, "fresh", "x", 1);
+    run_real("find fresh");
+    check_output("H47", "a new file is found at once", "/fresh\n");
+    run_real("rm fresh");
+    run_real("find fresh");
+    check("H47", "a deleted file is gone at once", mock_output_len == 0);
+
+    write_file(SHELL_ROOT_INODE, "fresh", "x", 1);
+    run_real("mv fresh box/moved2");
+    run_real("find fresh");
+    check("H48", "the old name of a moved file is gone", mock_output_len == 0);
+    run_real("find moved2");
+    check("H48", "its new place is found", has_line("/box/moved2") && line_count() == 1);
+    run_real("mkdir rootdir");
+    write_file(child_inode(SHELL_ROOT_INODE, "rootdir"), "innerfile", "i", 1);
+    run_real("mv rootdir box/");
+    run_real("find innerfile");
+    check_output("H48", "files below a moved folder follow it", "/box/rootdir/innerfile\n");
+
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char command[64];
+
+        snprintf(command, sizeof(command), "find %s", names[i]);
+        run_real(command);
+        sorted_output(before[i], sizeof(before[i]));
+    }
+    fs_index_invalidate();
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char command[64];
+
+        snprintf(command, sizeof(command), "find %s", names[i]);
+        run_real(command);
+        sorted_output(after, sizeof(after));
+        check("H49", names[i], strcmp(before[i], after) == 0);
+    }
+
+    check("H50", "a small buffer is reported as cut",
+          fs_index_find("leaf", 4, small, sizeof(small), &written) == FS_INDEX_TRUNCATED &&
+          written <= sizeof(small));
+    check("H50", "the index counts every file and folder", fs_index_count() > 20);
+}
+
 static void full_disk_cases(void) {
     static char chunk[FSU_FILE_MAX];
     char name[16];
@@ -1018,6 +1094,7 @@ int main(int argc, char **argv) {
     cp_cases();
     mv_cases();
     find_cases();
+    index_cases();
     full_disk_cases();
     large_directory_cases();
     fs_test_sum(&ctx, "shell");

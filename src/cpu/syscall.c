@@ -6,6 +6,7 @@
 #include "header/driver/cmos.h"
 #include "header/driver/keyboard.h"
 #include "header/filesystem/ext2.h"
+#include "header/filesystem/index.h"
 #include "header/memory/paging.h"
 #include "header/memory/swap.h"
 #include "header/process/process.h"
@@ -338,6 +339,20 @@ void syscall_dispatch(struct InterruptFrame *frame) {
             if (syscall_validate_user_range(move.source_name, move.source_length, false) &&
                 syscall_validate_user_range(move.destination_name, move.destination_length, false))
                 result = ext2_move(&move);
+            break;
+        }
+        case SYSCALL_FIND: {
+            struct SyscallFindRequest find;
+            if (!syscall_validate_user_range((void *)argument, sizeof(find), true))
+                break;
+            memcpy(&find, (void *)argument, sizeof(find));
+            if (find.name_len == 0 || !syscall_validate_user_range(find.name, find.name_len, false) ||
+                !syscall_validate_user_range(find.out, find.out_size, true))
+                break;
+            uint32_t written = 0;
+            result = fs_index_find(find.name, find.name_len, find.out, find.out_size, &written);
+            find.written = written;
+            ((struct SyscallFindRequest *)argument)->written = written;
             break;
         }
         default:
