@@ -130,3 +130,39 @@ void graphics_draw_cell(uint8_t row, uint8_t col, uint8_t character, uint8_t fg,
             line[x] = (bits & (0x80u >> x)) ? foreground : background;
     }
 }
+
+bool graphics_is_active(void) {
+    return linear_framebuffer != NULL;
+}
+
+void graphics_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, uint32_t color) {
+    if (linear_framebuffer == NULL)
+        return;
+    if (x < 0) {
+        width += x;
+        x = 0;
+    }
+    if (y < 0) {
+        height += y;
+        y = 0;
+    }
+    if (x + width > (int32_t)GRAPHICS_WIDTH)
+        width = (int32_t)GRAPHICS_WIDTH - x;
+    if (y + height > (int32_t)GRAPHICS_HEIGHT)
+        height = (int32_t)GRAPHICS_HEIGHT - y;
+    for (int32_t row = 0; row < height; row++) {
+        volatile uint32_t *line = linear_framebuffer + (uint32_t)(y + row) * GRAPHICS_WIDTH + (uint32_t)x;
+        for (int32_t col = 0; col < width; col++)
+            line[col] = color;
+    }
+}
+
+void graphics_draw_glyph(int32_t x, int32_t y, uint8_t character, uint32_t scale, uint32_t color) {
+    const uint8_t *glyph = font8x16[character];
+
+    for (uint32_t row = 0; row < GRAPHICS_GLYPH_HEIGHT; row++)
+        for (uint32_t col = 0; col < GRAPHICS_GLYPH_WIDTH; col++)
+            if (glyph[row] & (0x80u >> col))
+                graphics_fill_rect(x + (int32_t)(col * scale), y + (int32_t)(row * scale),
+                                   (int32_t)scale, (int32_t)scale, color);
+}
