@@ -5,6 +5,7 @@
 #include "header/cpu/portio.h"
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
+#include "header/text/bootanim.h"
 #include "header/kernel-entrypoint.h"
 #include "header/process/process.h"
 #include "header/cpu/scheduler.h"
@@ -17,6 +18,9 @@ void kernel_setup(void) {
     activate_keyboard_interrupt();
     framebuffer_enable_graphics();
     framebuffer_clear();
+#if BOOT_ANIMATION
+    boot_animation_play();
+#endif
     framebuffer_set_cursor(0, 0);
     initialize_filesystem_ext2();
     initialize_tss();
