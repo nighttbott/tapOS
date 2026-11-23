@@ -215,3 +215,73 @@ void mem_suite_load(struct FsTestContext *ctx) {
     int32_t mismatch = fs_test_first_mismatch(target, MEM_TEST_LOAD_SIZE);
     fs_test_check(ctx, "L05", "loaded bytes are correct", mismatch == -1, -1, mismatch);
 }
+
+/*
+ * Like exec when memory is full: the first address space takes every free frame and is left
+ * inactive, then a second one needs its very first frames. It owns no page yet, so the only
+ * pages that can be replaced belong to the inactive first directory.
+ */
+void mem_suite_cross(struct FsTestContext *ctx) {
+    pic_remap();
+    initialize_idt();
+    paging_initialize();
+
+    struct PageDirectory *kernel_dir = paging_get_current_page_directory_addr();
+    struct PageDirectory *first = paging_create_new_page_directory();
+    struct PageDirectory *second = paging_create_new_page_directory();
+    uint32_t free_before = page_manager_state.free_page_frame_count;
+    uint32_t swap_before = swap_manager.free_count;
+    uint32_t pages = 0;
+    bool ok = first != NULL && second != NULL;
+
+    fs_test_check(ctx, "X01", "two page directories", ok, 1, ok);
+
+    paging_enter_page_directory(first);
+    while (ok && page_manager_state.free_page_frame_count > 0) {
+        ok = paging_allocate_user_page_frame(first, (void *) page_addr(pages));
+        *(volatile uint32_t *) page_addr(pages) = 0xA0000000u + pages;
+        pages++;
+    }
+    paging_use_page_directory(kernel_dir);
+    fs_test_check(ctx, "X02", "first address space takes every free frame",
+                  ok && page_manager_state.free_page_frame_count == 0, 1, ok);
+    fs_test_check(ctx, "X02", "nothing in swap yet", swap_manager.free_count == swap_before,
+                  (int32_t) swap_before, (int32_t) swap_manager.free_count);
+
+    // A few pages, like the first pages of a program that is being loaded
+    uint32_t second_pages = 4;
+    paging_enter_page_directory(second);
+    for (uint32_t page = 0; page < second_pages && ok; page++) {
+        ok = paging_allocate_user_page_frame(second, (void *) page_addr(page));
+        if (ok)
+            *(volatile uint32_t *) page_addr(page) = 0xB0000000u + page;
+    }
+    paging_use_page_directory(kernel_dir);
+    fs_test_check(ctx, "X03", "second address space gets frames from the inactive one", ok, 1, ok);
+    fs_test_check(ctx, "X03", "pages of the inactive directory went to swap",
+                  swap_manager.free_count < swap_before, 1, swap_manager.free_count < swap_before);
+    fs_test_check(ctx, "X03", "caller directory is active again",
+                  paging_get_current_page_directory_addr() == kernel_dir, 1, 0);
+
+    // Reading faults pages back in, which replaces pages of the other, inactive directory
+    int32_t bad = -1;
+    for (int round = 0; round < 2 && bad < 0; round++) {
+        paging_enter_page_directory(first);
+        for (uint32_t page = 0; page < pages && bad < 0; page++)
+            if (*(volatile uint32_t *) page_addr(page) != 0xA0000000u + page)
+                bad = (int32_t) page;
+        paging_use_page_directory(second);
+        for (uint32_t page = 0; page < second_pages && bad < 0; page++)
+            if (*(volatile uint32_t *) page_addr(page) != 0xB0000000u + page)
+                bad = (int32_t) page;
+        paging_use_page_directory(kernel_dir);
+    }
+    fs_test_check(ctx, "X04", "both address spaces keep their data", bad == -1, -1, bad);
+
+    bool freed = paging_free_page_directory(first) && paging_free_page_directory(second);
+    fs_test_check(ctx, "X05", "both directories freed", freed, 1, freed);
+    fs_test_check(ctx, "X05", "no swap slot leaked", swap_manager.free_count == swap_before,
+                  (int32_t) swap_before, (int32_t) swap_manager.free_count);
+    fs_test_check(ctx, "X05", "no frame leaked", page_manager_state.free_page_frame_count == free_before,
+                  (int32_t) free_before, (int32_t) page_manager_state.free_page_frame_count);
+}

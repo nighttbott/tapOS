@@ -7,5 +7,7 @@ void mem_suite_frames(struct FsTestContext *ctx);
 void mem_suite_fault(struct FsTestContext *ctx);
 void mem_suite_swap(struct FsTestContext *ctx);
 void mem_suite_load(struct FsTestContext *ctx);
+// Needs a 5 MiB disk; pages of an inactive page directory must be replaceable
+void mem_suite_cross(struct FsTestContext *ctx);
 
 #endif
