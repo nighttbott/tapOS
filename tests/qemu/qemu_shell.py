@@ -127,6 +127,19 @@ class QemuShell:
                 for y in range(height)]
         return width, height, rows
 
+    def picture_has(self, predicate, minimum, timeout):
+        """True once a screendump holds at least `minimum` pixels (r, g, b) for which predicate is true."""
+        path = os.path.join(self.out, "picture.ppm")
+        end = time.time() + timeout
+        while time.time() < end:
+            self.command("screendump %s" % path)
+            raw = open(path, "rb").read()
+            body = raw[len(raw) - 640 * 400 * 3:]
+            if sum(1 for i in range(0, len(body), 3) if predicate(body[i], body[i + 1], body[i + 2])) >= minimum:
+                return True
+            time.sleep(0.25)
+        return False
+
     def save_screen(self, name="screen.txt"):
         with open(os.path.join(self.out, name), "w") as f:
             f.write("\n".join(self.screen()) + "\n")

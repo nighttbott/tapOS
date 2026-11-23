@@ -27,4 +27,16 @@ bool graphics_initialize(void);
  */
 void graphics_draw_cell(uint8_t row, uint8_t col, uint8_t character, uint8_t fg, uint8_t bg);
 
+/** True once graphics_initialize() has succeeded. */
+bool graphics_is_active(void);
+
+/** Fills a rectangle with a 0x00RRGGBB colour; the part outside the screen is cut off. */
+void graphics_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, uint32_t color);
+
+/**
+ * Draws the set pixels of an 8x16 glyph, each enlarged to scale x scale pixels, with its top left
+ * corner at (x, y). Unset pixels are left alone.
+ */
+void graphics_draw_glyph(int32_t x, int32_t y, uint8_t character, uint32_t scale, uint32_t color);
+
 #endif
