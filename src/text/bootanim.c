@@ -1,15 +1,15 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include "header/cpu/portio.h"
 #include "header/text/bootanim.h"
+#include "header/text/bootclock.h"
+#include "header/driver/graphics.h"
 #include "header/text/framebuffer.h"
 
 /*
- * Boot animation in the style of the Windows XP start-up screen: the logo is revealed letter by letter,
- * a row of blue blocks slides along a frame while the system starts, a welcome line flashes and
- * the screen opens like a curtain onto the shell. It only uses framebuffer_write(), so it looks the
- * same in text mode and in the pixel mode. Time comes from the PIT counter, read by polling,
- * because interrupts are still off while the kernel boots.
+ * Boot animation, text-cell version (used when the pixel graphics mode is not available; the
+ * pixel version is in bootanim_gfx.c): the logo is revealed letter by letter, a row of blue blocks
+ * slides along a frame while the system starts, a welcome line shows and the screen opens like a
+ * curtain onto the shell. It only uses framebuffer_write().
  */
 
 #define SCREEN_BG        0x00
@@ -23,9 +23,9 @@
 #define COLOR_TAIL       0x01
 
 #define BLOCK_CHAR       ((char) 0xDB)
-#define LETTERS          5       /* t a p O S */
-#define LETTER_ROWS      7
-#define LETTER_COLS      5
+#define LETTERS          BOOT_LOGO_LETTERS
+#define LETTER_ROWS      BOOT_LOGO_ROWS
+#define LETTER_COLS      BOOT_LOGO_COLS
 #define PIXEL_CELLS      2       /* a cell is 8x16 pixels, so two cells side by side make a square */
 #define LETTER_GAP       2       /* in cells */
 #define LOGO_ROWS        LETTER_ROWS
@@ -39,42 +39,14 @@
 #define BLOCKS           3
 #define BLOCKS_SPAN      (BLOCKS * BLOCK_WIDTH + (BLOCKS - 1) * BLOCK_GAP)
 
-#define PIT_HZ           1193182u
-#define PIT_COMMAND      0x43
-#define PIT_CHANNEL0     0x40
-
 /* The logo is drawn as a 5x7 pixel font; every '#' becomes two full-block characters. */
-static const char *const letters[LETTERS][LETTER_ROWS] = {
+const char *const boot_logo_letters[BOOT_LOGO_LETTERS][BOOT_LOGO_ROWS] = {
     {"..#..", "..#..", "#####", "..#..", "..#..", "..#..", "...##"},   /* t */
     {".....", ".....", ".###.", "....#", ".####", "#...#", ".####"},   /* a */
     {".....", ".....", "####.", "#...#", "#...#", "####.", "#...."},   /* p */
     {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."},   /* O */
     {".####", "#....", "#....", ".###.", "....#", "....#", "####."},   /* S */
 };
-
-static void pit_start(void) {
-    out(PIT_COMMAND, 0x34);          /* channel 0, low/high byte, mode 2 (counts down by one) */
-    out(PIT_CHANNEL0, 0);
-    out(PIT_CHANNEL0, 0);            /* reload 65536 */
-}
-
-static uint16_t pit_read(void) {
-    out(PIT_COMMAND, 0x00);          /* latch the counter */
-    uint16_t low = in(PIT_CHANNEL0);
-    return (uint16_t) ((in(PIT_CHANNEL0) << 8) | low);
-}
-
-static void wait_ms(uint32_t ms) {
-    uint32_t needed = ms * (PIT_HZ / 1000u) + ms * (PIT_HZ % 1000u) / 1000u;   /* 32-bit only: no libgcc */
-    uint32_t elapsed = 0;
-    uint16_t previous = pit_read();
-
-    while (elapsed < needed) {
-        uint16_t now = pit_read();
-        elapsed += (uint16_t) (previous - now);   /* the counter runs down and wraps */
-        previous = now;
-    }
-}
 
 static void put_text(uint8_t row, uint8_t col, const char *text, uint8_t color) {
     for (; *text != '\0'; text++, col++)
@@ -105,7 +77,7 @@ static void draw_letter(uint8_t letter) {
 
     for (uint8_t row = 0; row < LETTER_ROWS; row++) {
         for (uint8_t col = 0; col < LETTER_COLS; col++) {
-            if (letters[letter][row][col] != '#')
+            if (boot_logo_letters[letter][row][col] != '#')
                 continue;
             for (uint8_t cell = 0; cell < PIXEL_CELLS; cell++)
                 framebuffer_write((uint8_t) (LOGO_TOP + row), (uint8_t) (left + col * PIXEL_CELLS + cell),
@@ -151,7 +123,7 @@ static void draw_bar(int head) {
 static void reveal_logo(void) {
     for (uint8_t letter = 0; letter < LETTERS; letter++) {
         draw_letter(letter);
-        wait_ms(180);
+        boot_clock_wait(180);
     }
 }
 
@@ -165,7 +137,7 @@ static void slide_bar(uint32_t duration_ms) {
             clear_row(19);
             put_centered(19, dots[(frame / 5u) % 4u], COLOR_TEXT);
         }
-        wait_ms(55);
+        boot_clock_wait(55);
     }
 }
 
@@ -173,7 +145,7 @@ static void welcome(void) {
     for (uint8_t row = BAR_TOP; row <= 19; row++)
         clear_row(row);
     put_centered(BAR_TOP + 1, "Welcome", COLOR_LOGO);
-    wait_ms(700);
+    boot_clock_wait(700);
 }
 
 /* The screen opens from the middle towards both sides, like a curtain. */
@@ -186,12 +158,12 @@ static void open_curtain(void) {
             framebuffer_write(row, left, ' ', COLOR_TEXT, SCREEN_BG);
             framebuffer_write(row, right, ' ', COLOR_TEXT, SCREEN_BG);
         }
-        wait_ms(12);
+        boot_clock_wait(12);
     }
 }
 
-void boot_animation_play(void) {
-    pit_start();
+static void play_cells(void) {
+    boot_clock_start();
     framebuffer_clear();
     framebuffer_hide_cursor();
 
@@ -202,4 +174,11 @@ void boot_animation_play(void) {
     welcome();
     open_curtain();
     framebuffer_clear();
+}
+
+void boot_animation_play(void) {
+    if (graphics_is_active())
+        boot_animation_play_pixels();
+    else
+        play_cells();
 }
