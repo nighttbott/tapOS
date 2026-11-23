@@ -8,7 +8,7 @@
 | `bash tests/qemu/run_shell_qemu.sh` | Boots the real kernel and shell, types commands through the QEMU monitor and checks the screen        | ~15 s |
 | `bash tests/qemu/run_m4_qemu.sh`    | Milestone 4 end to end (P01–P12): `ps`, `exec hello`, clock, `kill`, process limit. Needs `hello.c` and `clock.c` | ~3 min |
 
-`tests/qemu/qemu_shell.py` holds the QEMU driver both keystroke tests share: `sendkey` through the monitor, and the text screen read from `0xB8000` with `pmemsave`. Test kernels use the Makefile kernel source lists and substitute `tests/qemu/test_kernel.c` for `src/kernel.c`.
+`tests/qemu/qemu_shell.py` holds the QEMU driver both keystroke tests share: `sendkey` through the monitor, and the text screen read with `pmemsave` from the kernel's `framebuffer_text_shadow` (the display is a pixel graphics mode, so `0xB8000` is not shown). Test kernels use the Makefile kernel source lists and substitute `tests/qemu/test_kernel.c` for `src/kernel.c`.
 
 Needs: `gcc`, `nasm`, `ld`, `genisoimage`, `qemu-system-i386`, `python3`.
 
