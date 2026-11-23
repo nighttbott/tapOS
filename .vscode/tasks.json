@@ -6,7 +6,7 @@
             "label": "Build OS",
             "command": "make",
             "args": [
-                "build",
+                "build"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -20,11 +20,39 @@
             }
         },
         {
+            "type": "process",
+            "label": "Build Inserter",
+            "command": "make",
+            "args": [
+                "inserter"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "type": "process",
+            "label": "Insert Shell",
+            "command": "make",
+            "args": [
+                "insert-shell"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
             "type": "shell",
             "label": "Launch QEMU",
-            "command": "echo Starting QEMU; qemu-system-i386 -m 128M -s -S -drive file=storage.bin,format=raw,if=ide,index=0,media=disk -cdrom OS2025.iso",
+            "command": "echo Starting QEMU; exec qemu-system-i386 -m 128M -gdb tcp:127.0.0.1:1234 -S -pidfile .tapOS-debug.pid -drive file=storage.bin,format=raw,if=ide,index=0,media=disk -cdrom OS2025.iso -boot order=d",
             "isBackground": true,
-            "dependsOn": "Build OS",
+            "dependsOn": [
+                "Build OS",
+                "Insert Shell"
+            ],
+            "dependsOrder": "sequence",
             "options": {
                 "cwd": "${workspaceFolder}/bin"
             },
@@ -40,14 +68,17 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": "^Starting QEMU$",
-                    "endsPattern": "^Starting QEMU$",
+                    "endsPattern": "^Starting QEMU$"
                 }
             }
         },
         {
             "type": "shell",
             "label": "Exit QEMU",
-            "command": "pkill -f qemu || test $? -eq 1"
+            "command": "if read -r pid < .tapOS-debug.pid 2>/dev/null; then case \"$pid\" in \"\"|*[!0-9]*) exit 1;; esac; if [ \"$(readlink \"/proc/$pid/cwd\")\" = \"$PWD\" ] && tr \"\\000\" \"\\n\" < \"/proc/$pid/cmdline\" | grep -Fxq .tapOS-debug.pid; then kill -TERM \"$pid\"; fi; fi",
+            "options": {
+                "cwd": "${workspaceFolder}/bin"
+            }
         }
-    ],
+    ]
 }

@@ -5,7 +5,7 @@
             "name": "Kernel",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceRoot}/bin/kernel",
+            "program": "${workspaceFolder}/bin/kernel",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -32,11 +32,27 @@
                     "description": "Get kernel symbols"
                 },
                 {
+                    "text": "add-symbol-file \"${workspaceFolder}/bin/shell_elf\" 0x0",
+                    "description": "Load shell symbols at its user virtual address"
+                },
+                {
                     "text": "set output-radix 16",
                     "description": "Use hexadecimal output"
                 }
             ],
             "avoidWindowsConsoleRedirection": true
+        },
+        {
+            "name": "Inserter",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/inserter",
+            "args": ["-f", "shell", "1", "storage.bin"],
+            "cwd": "${workspaceFolder}/bin",
+            "stopAtEntry": true,
+            "preLaunchTask": "Build Inserter",
+            "externalConsole": false,
+            "MIMode": "gdb"
         }
     ]
 }

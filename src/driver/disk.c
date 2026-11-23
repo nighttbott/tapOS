@@ -1,15 +1,18 @@
 #include "header/driver/disk.h"
 #include "header/cpu/portio.h"
 
-static void ATA_busy_wait() {
+static void ATA_busy_wait(void) {
     while (in(0x1F7) & ATA_STATUS_BSY);
 }
 
-static void ATA_DRQ_wait() {
-    while (!(in(0x1F7) & ATA_STATUS_RDY));
+static void ATA_DRQ_wait(void) {
+    while ((in(0x1F7) & (ATA_STATUS_BSY | ATA_STATUS_DRQ)) != ATA_STATUS_DRQ);
 }
 
 void read_blocks(void *ptr, uint32_t logical_block_address, uint8_t block_count) {
+    if (block_count == 0)
+        return;
+
     ATA_busy_wait();
     out(0x1F6, 0xE0 | ((logical_block_address >> 24) & 0xF));
     out(0x1F2, block_count);
@@ -20,7 +23,6 @@ void read_blocks(void *ptr, uint32_t logical_block_address, uint8_t block_count)
 
     uint16_t *target = (uint16_t*) ptr;
     for (uint32_t i = 0; i < block_count; i++) {
-        ATA_busy_wait();
         ATA_DRQ_wait();
         for (uint32_t j = 0; j < HALF_BLOCK_SIZE; j++)
             target[j] = in16(0x1F0);
@@ -29,6 +31,9 @@ void read_blocks(void *ptr, uint32_t logical_block_address, uint8_t block_count)
 }
 
 void write_blocks(const void *ptr, uint32_t logical_block_address, uint8_t block_count) {
+    if (block_count == 0)
+        return;
+
     ATA_busy_wait();
     out(0x1F6, 0xE0 | ((logical_block_address >> 24) & 0xF));
     out(0x1F2, block_count);
@@ -38,7 +43,6 @@ void write_blocks(const void *ptr, uint32_t logical_block_address, uint8_t block
     out(0x1F7, 0x30);
 
     for (uint32_t i = 0; i < block_count; i++) {
-        ATA_busy_wait();
         ATA_DRQ_wait();
         for (uint32_t j = 0; j < HALF_BLOCK_SIZE; j++)
             out16(0x1F0, ((uint16_t*) ptr)[HALF_BLOCK_SIZE*i + j]);

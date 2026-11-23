@@ -29,24 +29,21 @@ extern struct GDTR _gdt_gdtr;
  * @param non_system   1-bit contain system
  */
 struct SegmentDescriptor {
-    // Bytes 0-3 (Bit 0 to 31): segment limit low, base address low
-    uint16_t segment_low;   // Segment limit bits 0-15
-    uint16_t base_low;      // Base address bits 0-15
+    uint16_t segment_low;
+    uint16_t base_low;
 
-    // Bytes 4-5 (Bit 32 to 47): base address middle, type flags
-    uint8_t base_mid;       // Base address bits 16-23
-    uint8_t type_bit   : 4; // Segment type (code/data/... specific)
-    uint8_t non_system : 1; // S flag: 0 = system, 1 = code/data segment
-    uint8_t DPL        : 2; // Descriptor Privilege Level (ring 0-3)
-    uint8_t present    : 1; // P flag: 1 = segment valid & loaded in memory
+    uint8_t base_mid;
+    uint8_t type_bit   : 4;
+    uint8_t non_system : 1;
+    uint8_t DPL        : 2;
+    uint8_t present    : 1;
 
-    // Bytes 6-7 (Bit 48 to 63): segment limit high, flags, base address high
-    uint8_t limit_high  : 4; // Segment limit bits 16-19
-    uint8_t AVL         : 1; // Available for system software
-    uint8_t L           : 1; // Long mode: 1 = 64-bit code segment (0 in 32-bit)
-    uint8_t db          : 1; // D/B: 1 = 32-bit default operand/stack size
-    uint8_t granularity : 1; // G: 1 = limit scaled by 4 KiB
-    uint8_t base_high   : 8; // Base address bits 24-31
+    uint8_t limit_high  : 4;
+    uint8_t AVL         : 1;
+    uint8_t L           : 1;
+    uint8_t db          : 1;
+    uint8_t granularity : 1;
+    uint8_t base_high   : 8;
 } __attribute__((packed));
 
 /**
@@ -70,55 +67,8 @@ struct GDTR {
     struct GlobalDescriptorTable *address;
 } __attribute__((packed));
 
-/** x86 32-bit Task State Segment used on Ring 3 -> Ring 0 transitions. */
-struct TaskStateSegment {
-    uint32_t previous_task;
-    uint32_t esp0;
-    uint16_t ss0;
-    uint16_t reserved0;
-    uint32_t esp1;
-    uint16_t ss1;
-    uint16_t reserved1;
-    uint32_t esp2;
-    uint16_t ss2;
-    uint16_t reserved2;
-    uint32_t cr3;
-    uint32_t eip;
-    uint32_t eflags;
-    uint32_t eax;
-    uint32_t ecx;
-    uint32_t edx;
-    uint32_t ebx;
-    uint32_t esp;
-    uint32_t ebp;
-    uint32_t esi;
-    uint32_t edi;
-    uint16_t es;
-    uint16_t reserved3;
-    uint16_t cs;
-    uint16_t reserved4;
-    uint16_t ss;
-    uint16_t reserved5;
-    uint16_t ds;
-    uint16_t reserved6;
-    uint16_t fs;
-    uint16_t reserved7;
-    uint16_t gs;
-    uint16_t reserved8;
-    uint16_t ldt_selector;
-    uint16_t reserved9;
-    uint16_t debug_trap;
-    uint16_t io_map_base;
-} __attribute__((packed));
-
-extern struct TaskStateSegment _tss;
-
+void gdt_install_tss(void);
 void initialize_tss(void);
-void tss_set_kernel_stack(void *stack_top);
-__attribute__((noreturn)) void enter_user_mode(void *entry, void *stack_top);
 extern void set_tss_register(void);
-
-_Static_assert(sizeof(struct TaskStateSegment) == 104,
-               "TaskStateSegment must be 104 bytes");
 
 #endif

@@ -6,7 +6,6 @@
 #include <stddef.h>
 #include "header/driver/disk.h"
 
-
 /* -- IF2130 File System constants -- */
 #define BOOT_SECTOR 0 // legacy from FAT32 filesystem IF2130 OS
 #define DISK_SPACE 4194304u // 4MB disk space (because our disk or storage.bin is 4MB)
@@ -18,15 +17,12 @@
 #define INODES_TABLE_BLOCK_COUNT 16u 
 #define INODES_PER_GROUP (INODES_PER_TABLE * INODES_TABLE_BLOCK_COUNT) // number of inodes per group
 
-
-
 /**
  * inodes constant 
  * - reference: https://www.nongnu.org/ext2-doc/ext2.html#inode-table
  */
 #define EXT2_S_IFREG 0x8000 // regular file 
 #define EXT2_S_IFDIR 0x4000 // directory
-
 
 /* FILE TYPE CONSTANT*/
 /**
@@ -92,9 +88,7 @@ struct EXT2Superblock
     uint8_t s_prealloc_blocks; // 8bit value indicating the number of blocks to preallocate for files.
     uint8_t s_prealloc_dir_blocks; // 8bit value indicating the number of blocks to preallocate for directories.
 
-
 }__attribute__((packed));
-
 
 /**
  * reference: 
@@ -149,7 +143,6 @@ struct EXT2BlockGroupDescriptorTable
 {
     struct EXT2BlockGroupDescriptor table[GROUPS_COUNT]; // can be change with fixed size array
 };
-
 
 /**
  * EXT2Inode
@@ -254,7 +247,6 @@ uint16_t get_entry_record_len(uint8_t name_len);
  */
 uint32_t get_dir_first_child_offset(void *ptr);
 
-
 /* =================== MAIN FUNCTION OF EXT32 FILESYSTEM ============================*/
 
 /**
@@ -306,8 +298,6 @@ void initialize_filesystem_ext2(void);
  */
 bool is_directory_empty(uint32_t inode);
 
-
-
 /* =============================== CRUD FUNC ======================================== */
 
 /**
@@ -324,19 +314,9 @@ int8_t read_directory(struct EXT2DriverRequest *prequest);
  */
 int8_t read(struct EXT2DriverRequest request);
 
-/**
- * @brief Write a file or directory to the filesystem.
- *
- * @param request Pointer to the write request.
- *        is_directory selects the entry type.
- *        Names must be unique within the parent directory,
- *        including the reserved names "." and "..".
- *
- * @return  0 on success.
- * @return  1 if the entry name already exists.
- * @return  2 if the parent directory is invalid.
- * @return -1 on any other error.
- */
+/* Same read operation, with the number of bytes copied on success. */
+int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out);
+
 int8_t write(struct EXT2DriverRequest *request);
 
 /**
@@ -399,5 +379,17 @@ void allocate_node_blocks(void *ptr, struct EXT2Inode *node, uint32_t prefered_b
  * @param inode location of the node
  */
 void sync_node(struct EXT2Inode *node, uint32_t inode);
+
+struct EXT2MoveRequest {
+    uint32_t source_parent;
+    uint32_t destination_parent;
+    const char *source_name;
+    const char *destination_name;
+    uint8_t source_length;
+    uint8_t destination_length;
+};
+
+int8_t ext2_read_directory_block(uint32_t inode, uint32_t index, void *buffer);
+int8_t ext2_move(const struct EXT2MoveRequest *request);
 
 #endif

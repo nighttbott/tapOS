@@ -17,22 +17,6 @@ extern void *isr_stub_table[ISR_STUB_TABLE_LIMIT];
 
 extern struct IDTR _idt_idtr;
 
-/**
- * IDTGate, IDT entry that point into interrupt handler
- * Struct defined exactly in Intel x86 Vol 3a - Figure 6-2. IDT Gate Descriptors
- *
- * @param offset_low  Lower 16-bit offset
- * @param segment     Memory segment
- * @param _reserved   Reserved bit, bit length: 5
- * @param _r_bit_1    Reserved for idtgate type, bit length: 3 (zero)
- * @param _r_bit_2    Reserved for idtgate type, bit length: 3 (gate_type)
- * @param gate_32     Is this gate size 32-bit? If not then its 16-bit gate (size_gate)
- * @param _r_bit_3    Reserved for idtgate type, bit length: 1 (zero)
- * @param DPL
- * @param valid_bit
- * @param offset_up
- * ...  
- */
 struct IDTGate {
     // First 32-bit (Bit 0 to 31)
     uint16_t offset_low;
@@ -59,7 +43,6 @@ struct IDT {
     struct IDTGate table[256];
 } __attribute__((packed));
 
-
 /**
  * IDTR, carrying information where's the IDT located and size.
  * Global kernel variable defined at idt.c.
@@ -71,8 +54,6 @@ struct IDTR {
     uint32_t offset;
 } __attribute__((packed));
 
-
-
 /**
  * Set IDTGate with proper interrupt handler values.
  * Will directly edit global IDT variable and set values properly
@@ -83,7 +64,6 @@ struct IDTR {
  * @param privilege        Descriptor privilege level
  */
 void set_interrupt_gate(uint8_t int_vector, void *handler_address, uint16_t gdt_seg_selector, uint8_t privilege);
-
 
 /**
  * Set IDT with proper values and load with lidt

@@ -1,14 +1,38 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "header/cpu/portio.h"
+#include "header/cpu/gdt.h"
 #include "header/cpu/interrupt.h"
 #include "header/driver/keyboard.h"
 #include "header/text/framebuffer.h"
 #include "header/memory/swap.h"
 #include "header/cpu/syscall.h"
+#include "header/cpu/scheduler.h"
+
+struct TaskStateSegment _tss;
+static volatile uint32_t pit_ticks;
+
+void tss_set_kernel_stack(void *stack_top) {
+    _tss.esp0 = (uint32_t)stack_top;
+    _tss.ss0 = GDT_KERNEL_DATA_SEGMENT_SELECTOR;
+}
 
 void activate_keyboard_interrupt(void) {
     out(PIC1_DATA, in(PIC1_DATA) & ~(1 << IRQ_KEYBOARD));
+}
+
+void pit_initialize(uint16_t divisor) {
+    if (divisor == 0)
+        return;
+    pit_ticks = 0;
+    out(0x43, 0x36); 
+    out(0x40, (uint8_t)(divisor & 0xFFu));
+    out(0x40, (uint8_t)(divisor >> 8));
+    out(PIC1_DATA, in(PIC1_DATA) & ~(1u << IRQ_TIMER));
+}
+
+uint32_t pit_get_ticks(void) {
+    return pit_ticks;
 }
 
 void io_wait(void) {
@@ -21,18 +45,17 @@ void pic_ack(uint8_t irq) {
 }
 
 void pic_remap(void) {
-    // Starts the initialization sequence in cascade mode
     out(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4); 
     io_wait();
     out(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
     io_wait();
-    out(PIC1_DATA, PIC1_OFFSET); // ICW2: Master PIC vector offset
+    out(PIC1_DATA, PIC1_OFFSET);
     io_wait();
-    out(PIC2_DATA, PIC2_OFFSET); // ICW2: Slave PIC vector offset
+    out(PIC2_DATA, PIC2_OFFSET);
     io_wait();
-    out(PIC1_DATA, 0b0100); // ICW3: tell Master PIC, slave PIC at IRQ2 (0000 0100)
+    out(PIC1_DATA, 0b0100);
     io_wait();
-    out(PIC2_DATA, 0b0010); // ICW3: tell Slave PIC its cascade identity (0000 0010)
+    out(PIC2_DATA, 0b0010);
     io_wait();
 
     out(PIC1_DATA, ICW4_8086);
@@ -40,7 +63,6 @@ void pic_remap(void) {
     out(PIC2_DATA, ICW4_8086);
     io_wait();
 
-    // Disable all interrupts
     out(PIC1_DATA, PIC_DISABLE_ALL_MASK);
     out(PIC2_DATA, PIC_DISABLE_ALL_MASK);
 }
@@ -90,19 +112,23 @@ static void exception_panic(const struct InterruptFrame *frame) {
     }
 }
 
-void main_interrupt_handler(struct InterruptFrame frame) {
-    if (frame.int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame.int_stack.error_code))
+void main_interrupt_handler(struct InterruptFrame *frame) {
+    if (frame->int_number == PAGE_FAULT_VECTOR && handle_page_fault(frame->int_stack.error_code))
         return;
-    if (frame.int_number < 32U){
-        exception_panic(&frame);
-    }
-    switch (frame.int_number) {
-        case PIC1_OFFSET + IRQ_KEYBOARD :
+    if (frame->int_number < 32U)
+        exception_panic(frame);
+
+    switch (frame->int_number) {
+        case PIC1_OFFSET + IRQ_TIMER:
+            ++pit_ticks;
+            pic_ack(IRQ_TIMER);
+            scheduler_handle_timer(frame);
+            break;
+        case PIC1_OFFSET + IRQ_KEYBOARD:
             keyboard_isr();
             break;
-        case SYSCALL_VECTOR :
-            // frame lives on the stack popad reads, so the EAX result reaches Ring 3
-            syscall_dispatch(&frame);
+        case SYSCALL_VECTOR:
+            syscall_dispatch(frame);
             break;
     }
 }

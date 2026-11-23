@@ -2,6 +2,9 @@
 ASM           = nasm
 LIN           = ld
 CC            = gcc
+OBJCOPY      ?= objcopy
+
+.DEFAULT_GOAL := run
 
 # Directory
 SOURCE_FOLDER = src
@@ -9,44 +12,51 @@ OUTPUT_FOLDER = bin
 ISO_NAME      = OS2025
 DISK_NAME     = storage
 
-# RAM in MiB, used by the kernel and QEMU. Example: make run SYSTEM_MEMORY_MB=6
 SYSTEM_MEMORY_MB ?= 128
 
 # Flags
 WARNING_CFLAG = -Wall -Wextra -Werror
 DEBUG_CFLAG   = -fshort-wchar -g
 STRIP_CFLAG   = -nostdlib -fno-stack-protector -nostartfiles -nodefaultlibs -ffreestanding
-CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -m32 -c -I$(SOURCE_FOLDER) -DSYSTEM_MEMORY_MB=$(SYSTEM_MEMORY_MB)
+CFLAGS        = $(DEBUG_CFLAG) $(WARNING_CFLAG) $(STRIP_CFLAG) -fno-pie -fno-pic -m32 -c -I$(SOURCE_FOLDER) -DSYSTEM_MEMORY_MB=$(SYSTEM_MEMORY_MB)
 AFLAGS        = -f elf32 -g -F dwarf
 LFLAGS        = -T $(SOURCE_FOLDER)/linker.ld -melf_i386
 
+KERNEL_ASM_SOURCES = kernel-entrypoint.s cpu/intsetup.s cpu/context-switch.s
+KERNEL_C_SOURCES = kernel.c cpu/gdt.c cpu/idt.c cpu/interrupt.c cpu/syscall.c \
+                   cpu/portio.c driver/keyboard.c driver/disk.c filesystem/ext2.c \
+                   memory/paging.c memory/swap.c text/framebuffer.c stdlib/string.c \
+                   process/process.c process/loader.c process/scheduler.c
+KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=.o) $(KERNEL_C_SOURCES:.c=.o)))
+
+.PHONY: run all build clean kernel iso disk user-apps inserter insert-shell insert-apps \
+        kernel-c-sources kernel-asm-sources shell-module-sources shell_elf
+
 run: all insert-shell
-	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -s -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso
+	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -gdb tcp:127.0.0.1:1234 -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso -boot order=d
 all: build
 build: iso
 clean:
 	rm -rf $(OUTPUT_FOLDER)/*.o $(OUTPUT_FOLDER)/$(ISO_NAME).iso $(OUTPUT_FOLDER)/kernel
+	rm -rf $(OUTPUT_FOLDER)/user
+	rm -f $(OUTPUT_FOLDER)/shell_elf $(OUTPUT_FOLDER)/inserter $(addprefix $(OUTPUT_FOLDER)/,$(USER_PROGRAMS))
 kernel:
 	@mkdir -p $(OUTPUT_FOLDER)
-	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/kernel-entrypoint.s -o $(OUTPUT_FOLDER)/kernel-entrypoint.o
-	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/cpu/intsetup.s -o $(OUTPUT_FOLDER)/intsetup.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/kernel.c -o $(OUTPUT_FOLDER)/kernel.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/gdt.c -o $(OUTPUT_FOLDER)/gdt.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/idt.c -o $(OUTPUT_FOLDER)/idt.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/interrupt.c -o $(OUTPUT_FOLDER)/interrupt.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/syscall.c -o $(OUTPUT_FOLDER)/syscall.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/cpu/portio.c -o $(OUTPUT_FOLDER)/portio.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/driver/keyboard.c -o $(OUTPUT_FOLDER)/keyboard.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/driver/disk.c -o $(OUTPUT_FOLDER)/disk.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/filesystem/ext2.c -o $(OUTPUT_FOLDER)/ext2.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/memory/paging.c -o $(OUTPUT_FOLDER)/paging.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/memory/swap.c -o $(OUTPUT_FOLDER)/swap.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/memory/process_memory.c -o $(OUTPUT_FOLDER)/process_memory.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/text/framebuffer.c -o $(OUTPUT_FOLDER)/framebuffer.o
-	@$(CC) $(CFLAGS) $(SOURCE_FOLDER)/stdlib/string.c -o $(OUTPUT_FOLDER)/string.o
-	@$(LIN) $(LFLAGS) $(OUTPUT_FOLDER)/*.o -o $(OUTPUT_FOLDER)/kernel
+	@for source in $(KERNEL_ASM_SOURCES); do \
+		$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/$$source -o $(OUTPUT_FOLDER)/$$(basename $$source .s).o || exit 1; \
+	done
+	@for source in $(KERNEL_C_SOURCES); do \
+		$(CC) $(CFLAGS) $(SOURCE_FOLDER)/$$source -o $(OUTPUT_FOLDER)/$$(basename $$source .c).o || exit 1; \
+	done
+	@$(LIN) $(LFLAGS) $(KERNEL_OBJECTS) -o $(OUTPUT_FOLDER)/kernel
 	@echo Linking object files and generate elf32...
-	@rm -f *.o
+
+kernel-c-sources:
+	@printf '%s\n' $(addprefix $(SOURCE_FOLDER)/,$(KERNEL_C_SOURCES))
+
+kernel-asm-sources:
+	@printf '%s\n' $(addprefix $(SOURCE_FOLDER)/,$(KERNEL_ASM_SOURCES))
+
 iso: kernel
 	@mkdir -p $(OUTPUT_FOLDER)/iso/boot/grub
 	@cp $(OUTPUT_FOLDER)/kernel     $(OUTPUT_FOLDER)/iso/boot/
@@ -60,41 +70,61 @@ iso: kernel
 								-input-charset utf8       	\
 								-quiet                    	\
 								-boot-info-table          	\
-								-o OS2025.iso             	\
+								-o $(ISO_NAME).iso             	\
 								iso 
 	@rm -r $(OUTPUT_FOLDER)/iso/
-disk:
-	@mkdir -p $(OUTPUT_FOLDER)
-	@qemu-img create -f raw $(OUTPUT_FOLDER)/$(DISK_NAME).bin 5M
+disk: $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+	@test "$$(wc -c < $<)" -ge 5242880 || { \
+		echo "$< needs at least 5 MiB for EXT2 and swap. Back up the image before migrating it." >&2; \
+		exit 1; \
+	}
 
-# User programs are flat binaries at address 0. Each one gets its own object folder under bin/user,
-# so its link sees only its own objects and the kernel link (bin/*.o) sees none of them.
-USER_PROGRAMS = shell hello clock
-USER_COMMON   = user/crt0.c user/syscall.c stdlib/string.c
-USER_SOURCES_shell = user/shell.c user/grep.c user/proc.c
-USER_SOURCES_hello = user/hello.c
-USER_SOURCES_clock = user/clock.c
-# Static pattern: a plain user-% would also match user-apps and build a program called "apps"
+$(OUTPUT_FOLDER)/$(DISK_NAME).bin:
+	@mkdir -p $(OUTPUT_FOLDER)
+	@qemu-img create -f raw $@ 5M
+
+USER_PROGRAMS = shell $(foreach app,hello clock,$(if $(wildcard $(SOURCE_FOLDER)/$(USER_SOURCES_$(app))),$(app)))
+USER_COMMON   = user/syscall.c stdlib/string.c
+SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
+                       user/command/navigation.c user/command/file.c user/command/find.c \
+                       user/command/search.c user/command/process.c
+USER_SOURCES_shell = user-shell.c $(SHELL_MODULE_SOURCES)
+USER_SOURCES_hello = external/hello.c
+USER_SOURCES_clock = external/clock.c
+.PHONY: $(addprefix user-,$(USER_PROGRAMS))
 $(addprefix user-,$(USER_PROGRAMS)): user-%:
 	@rm -rf $(OUTPUT_FOLDER)/user/$* && mkdir -p $(OUTPUT_FOLDER)/user/$*
+	@$(ASM) $(AFLAGS) $(SOURCE_FOLDER)/crt0.s -o $(OUTPUT_FOLDER)/user/$*/crt0.o
 	@for f in $(USER_COMMON) $(USER_SOURCES_$*); do \
 		$(CC) $(CFLAGS) -fno-pie -fno-asynchronous-unwind-tables $(SOURCE_FOLDER)/$$f \
 			-o $(OUTPUT_FOLDER)/user/$*/$$(basename $$f .c).o || exit 1; \
 	done
-	@$(LIN) -T $(SOURCE_FOLDER)/user/user-linker.ld -melf_i386 $(OUTPUT_FOLDER)/user/$*/*.o -o $(OUTPUT_FOLDER)/$*
+	@$(LIN) -T $(SOURCE_FOLDER)/user-linker.ld -melf_i386 \
+		$(OUTPUT_FOLDER)/user/$*/crt0.o \
+		$(addprefix $(OUTPUT_FOLDER)/user/$*/,$(notdir $(USER_COMMON:.c=.o) $(USER_SOURCES_$*:.c=.o))) \
+		-o $(OUTPUT_FOLDER)/user/$*/$*.elf
+	@if [ "$*" = shell ]; then \
+		$(OBJCOPY) -O binary $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/$* && \
+		cp $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/shell_elf; \
+	else \
+		$(OBJCOPY) --strip-all $(OUTPUT_FOLDER)/user/$*/$*.elf $(OUTPUT_FOLDER)/$*; \
+	fi
 	@echo Linking user program $*...
 user-apps: $(addprefix user-,$(USER_PROGRAMS))
+shell_elf: user-shell
 
-# Host program, so read/write/delete are renamed away from the C library ones.
+shell-module-sources:
+	@printf '%s\n' $(addprefix $(SOURCE_FOLDER)/,$(SHELL_MODULE_SOURCES))
+
 inserter:
 	@mkdir -p $(OUTPUT_FOLDER)
-	@$(CC) -std=gnu11 -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \
-		tools/inserter.c $(SOURCE_FOLDER)/filesystem/ext2.c -o $(OUTPUT_FOLDER)/inserter
+	@$(CC) -std=gnu11 -g -Wall -Wextra -Werror -I$(SOURCE_FOLDER) -Dread=fs_read -Dwrite=fs_write -Ddelete=fs_delete \
+		$(SOURCE_FOLDER)/external/external-inserter.c $(SOURCE_FOLDER)/filesystem/ext2.c -o $(OUTPUT_FOLDER)/inserter
 
-insert-shell: user-shell inserter
-	@./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/shell 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin
+insert-shell: user-shell inserter | disk
+	@./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/shell 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin
 
-insert-apps: user-apps inserter
+insert-apps: user-apps inserter | disk
 	@for p in $(USER_PROGRAMS); do \
-		./$(OUTPUT_FOLDER)/inserter $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
+		./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
 	done

@@ -11,7 +11,6 @@
 #define PIC1_OFFSET          0x20
 #define PIC2_OFFSET          0x28
 
-// CPU exception vector
 #define PAGE_FAULT_VECTOR    0x0E
 
 // PIC ports
@@ -39,7 +38,6 @@
 #define ICW4_BUF_MASTER      0x0C   /* Buffered mode/master */
 #define ICW4_SFNM            0x10   /* Special fully nested (not) */
 
-
 /* -- PICs IRQ list -- */
 
 // PIC Master
@@ -62,7 +60,6 @@
 #define IRQ_PRIMARY_ATA  14
 #define IRQ_SECOND_ATA   15
 
-
 /**
  * CPURegister, store CPU registers values.
  * 
@@ -77,8 +74,8 @@ struct CPURegister {
         uint32_t esi;
     } __attribute__((packed)) index;
     struct {
-        uint32_t esp;
         uint32_t ebp;
+        uint32_t esp;
     } __attribute__((packed)) stack;
     struct {
         uint32_t ebx;
@@ -128,10 +125,22 @@ struct InterruptFrame {
     struct InterruptStack int_stack;
 } __attribute__((packed));
 
+/* The CPU appends these words only on a privilege transition. */
+struct UserInterruptFrame {
+    struct InterruptFrame frame;
+    uint32_t esp;
+    uint32_t ss;
+} __attribute__((packed));
 
+_Static_assert(offsetof(struct CPURegister, stack.ebp) == 8, "PUSHAD EBP offset");
+_Static_assert(offsetof(struct CPURegister, stack.esp) == 12, "PUSHAD ESP offset");
+_Static_assert(offsetof(struct UserInterruptFrame, esp) == 68, "Ring 3 ESP offset");
+_Static_assert(offsetof(struct UserInterruptFrame, ss) == 72, "Ring 3 SS offset");
 
 // Activate PIC mask for keyboard only
 void activate_keyboard_interrupt(void);
+void pit_initialize(uint16_t divisor);
+uint32_t pit_get_ticks(void);
 
 // I/O port wait, around 1-4 microsecond, for I/O synchronization purpose
 void io_wait(void);
@@ -142,19 +151,53 @@ void pic_ack(uint8_t irq);
 // Shift PIC interrupt number to PIC1_OFFSET and PIC2_OFFSET (master and slave)
 void pic_remap(void);
 
-/**
- * Main interrupt handler when any interrupt / exception is raised.
- * DO NOT CALL THIS FUNCTION.
- * 
- * This function will be called first if any INT 0x00 - 0x40 is raised, 
- * and will call proper ISR for respective interrupt / exception.
- * 
- * If inter-privilege interrupt raised, SS and ESP is automatically out of main_interrupt_handler()
- * parameter. Can be checked with ((int*) info) + 4 for user $esp, 5 for user $ss
- * 
- * Again, this function is not for normal function call, all parameter will be automatically set when interrupt is called.
- * @param frame Information about CPU during interrupt is raised
- */
-void main_interrupt_handler(struct InterruptFrame frame);
+void main_interrupt_handler(struct InterruptFrame *frame);
+
+struct TaskStateSegment {
+    uint32_t previous_task;
+    uint32_t esp0;
+    uint16_t ss0;
+    uint16_t reserved0;
+    uint32_t esp1;
+    uint16_t ss1;
+    uint16_t reserved1;
+    uint32_t esp2;
+    uint16_t ss2;
+    uint16_t reserved2;
+    uint32_t cr3;
+    uint32_t eip;
+    uint32_t eflags;
+    uint32_t eax;
+    uint32_t ecx;
+    uint32_t edx;
+    uint32_t ebx;
+    uint32_t esp;
+    uint32_t ebp;
+    uint32_t esi;
+    uint32_t edi;
+    uint16_t es;
+    uint16_t reserved3;
+    uint16_t cs;
+    uint16_t reserved4;
+    uint16_t ss;
+    uint16_t reserved5;
+    uint16_t ds;
+    uint16_t reserved6;
+    uint16_t fs;
+    uint16_t reserved7;
+    uint16_t gs;
+    uint16_t reserved8;
+    uint16_t ldt_selector;
+    uint16_t reserved9;
+    uint16_t debug_trap;
+    uint16_t io_map_base;
+} __attribute__((packed));
+
+extern struct TaskStateSegment _tss;
+
+void tss_set_kernel_stack(void *stack_top);
+
+_Static_assert(sizeof(struct TaskStateSegment) == 104,
+               "TaskStateSegment must be 104 bytes");
 
 #endif

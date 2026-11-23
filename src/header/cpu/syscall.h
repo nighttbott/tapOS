@@ -19,19 +19,18 @@ enum SyscallNumber {
     SYSCALL_PROCESS_LIST = 10,
     SYSCALL_GET_TIME = 11,
     SYSCALL_WRITE_STATUS = 12,
+    SYSCALL_READ_DIRECTORY_BLOCK = 13,
+    SYSCALL_MOVE = 14,
 };
 
-/* Must equal PROCESS_NAME_LENGTH_MAX, including the '\0'. */
 #define SYSCALL_PROCESS_NAME_MAX 32
 
-/* One row of SYSCALL_PROCESS_LIST, shared with user programs. */
 struct SyscallProcessInfo {
     uint32_t pid;
-    uint32_t state;                         // enum ProcessState: 1 ready, 2 running
+    uint32_t state;
     char     name[SYSCALL_PROCESS_NAME_MAX];
 } __attribute__((packed));
 
-/* Dispatch a Ring 3 request. EAX selects a SyscallNumber; EBX, ECX and EDX are its arguments. */
 void syscall_dispatch(struct InterruptFrame *frame);
 
 #endif

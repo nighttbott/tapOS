@@ -10,9 +10,11 @@ SECTIONS {
     .data ALIGN (0x1000) : AT (ADDR (.data) - 0xC0000000) { *(.data) }
     .bss ALIGN (0x1000) : AT (ADDR (.bss) - 0xC0000000) {
         *(COMMON)
-        *(.bss)
+        *(.bss .bss.*)
         _linker_kernel_stack_top = .;
     }
     _linker_kernel_virtual_addr_end  = .;
     _linker_kernel_physical_addr_end = . - 0xC0000000;
+    ASSERT(_linker_kernel_physical_addr_end <= 0x400000,
+           "kernel exceeds the 4 MiB bootstrap mapping")
 }

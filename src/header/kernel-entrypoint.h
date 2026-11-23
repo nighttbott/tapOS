@@ -12,4 +12,6 @@
  */
 extern void load_gdt(struct GDTR *gdtr);
 
+__attribute__((noreturn)) void enter_user_mode(void *entry, void *stack_top);
+
 #endif

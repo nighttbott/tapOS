@@ -1,5 +1,6 @@
 global loader                        ; the entry symbol for ELF
 global load_gdt                      ; load GDT table
+global enter_user_mode
 global set_tss_register              ; set tss register to GDT entry
 extern kernel_setup                  ; kernel C entrypoint
 extern _paging_kernel_page_directory ; kernel page directory
@@ -11,19 +12,16 @@ MAGIC_NUMBER        equ 0x1BADB002    ; define the magic number constant
 FLAGS               equ 0x0           ; multiboot flags
 CHECKSUM            equ -MAGIC_NUMBER ; calculate the checksum (magic number + checksum + flags == 0)
 
-
 section .bss
 align 4                    ; align at 4 bytes
 kernel_stack:              ; label points to beginning of memory
     resb KERNEL_STACK_SIZE ; reserve stack for the kernel
-
 
 section .multiboot  ; GRUB multiboot header
 align 4             ; the code must be 4 byte aligned
     dd MAGIC_NUMBER ; write the magic number to the machine code,
     dd FLAGS        ; the flags,
     dd CHECKSUM     ; and the checksum
-
 
 ; start of the text (code) section
 section .setup.text 
@@ -66,12 +64,14 @@ loader_entrypoint:         ; the loader label (defined as entry point in linker 
 
 loader_virtual:
     mov dword [_paging_kernel_page_directory], 0
-    invlpg [0]                                ; Delete identity mapping and invalidate TLB cache for first page
+    mov eax, cr3
+    mov cr3, eax
     mov esp, kernel_stack + KERNEL_STACK_SIZE ; Setup stack register to proper location
+    and esp, -16
+    cld
     call kernel_setup
 .loop:
     jmp .loop                                 ; loop forever
-
 
 section .text
 ; More details: https://en.wikibooks.org/wiki/X86_Assembly/Protected_Mode
@@ -97,8 +97,22 @@ flush_cs:
     mov es, ax
     ret
 
-
 set_tss_register:
     mov ax, 0x28 | 0 ; GDT TSS Selector, ring 0
     ltr ax
     ret
+
+enter_user_mode:
+    mov ecx, [esp+4]
+    mov edx, [esp+8]
+    mov ax, 0x23
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    push dword 0x23
+    push edx
+    push dword 0x202
+    push dword 0x1B
+    push ecx
+    iret

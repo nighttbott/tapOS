@@ -2,16 +2,20 @@
 
 | File | Isi |
 | --- | --- |
-| `src/user/shell.h` | Kontrak untuk E: `ShellIO`, tipe command, API CWD, resolusi path |
-| `src/user/shell.c` | REPL, pembaca baris, parser, dispatch, pipeline, CWD, resolusi path |
-| `src/user/grep.c` | Command `grep` |
-| `src/user/syscall.h`, `syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
-| `test/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
-| `test/host/shell_test.c` | Test H01–H17 |
-| `test/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
-| `src/user/crt0.c`, `user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
-| `tools/inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
-| `test/qemu/run_shell_qemu.sh`, `shell_keys.py` | Test shell di QEMU dengan input keyboard |
+| `src/header/user/commands.h` | Deklarasi perintah dan fungsi filesystem yang dipakai bersama |
+| `src/header/user/shell.h` | `ShellIO`, tipe command, API CWD, dan resolusi path |
+| `src/user-shell.c` | REPL, pembaca baris, tabel command, CWD, resolusi path |
+| `src/user/shell-parser.c` | Memecah baris menjadi argumen dan tahap pipeline |
+| `src/user/shell-pipeline.c` | Dispatch dan buffer keluaran antar-tahap |
+| `src/user/command/` | Navigasi, operasi file, pencarian, dan command proses |
+| `src/user/fsutil.c` | Fungsi filesystem yang dipakai bersama oleh perintah shell |
+| `src/header/user/syscall.h`, `src/user/syscall.c` | Enam wrapper `int 0x30`, hanya dipakai di build user |
+| `tests/host/shell_mock_syscall.c` | Wrapper versi laptop, memanggil `ext2.c` di RAM disk |
+| `tests/host/shell_test.c` | Test H01–H46 |
+| `tests/host/run_shell_tests.sh` | Build freestanding, build host, lalu menjalankan test |
+| `src/crt0.s`, `src/user-linker.ld` | Titik masuk dan layout binary user di alamat 0 |
+| `src/external/external-inserter.c` | Memasukkan file ke `storage.bin` dari laptop |
+| `tests/qemu/run_shell_qemu.sh`, `shell_keys.py` | Test shell di QEMU dengan input keyboard |
 
 ## Alur satu perintah
 
@@ -44,7 +48,7 @@ Contoh `cat a | grep x`:
 
 | Karakter | Perlakuan |
 | --- | --- |
-| `0x20`–`0x7E` | Disimpan dan di-echo, sampai 127 karakter |
+| `0x20`–`0x7E` | Disimpan dan di-echo, sampai 127 karakter. Masukan yang melewati batas dibatalkan saat Enter. |
 | `'\b'` | Menghapus satu karakter bila baris tidak kosong |
 | `'\n'` | Mengakhiri baris |
 | Lainnya (panah, Tab, Esc) | Diabaikan |
@@ -81,7 +85,7 @@ Tidak ada stderr terpisah. Pesan error ditulis lewat `shell_out`, dan return buk
 
 State CWD adalah `cwd_inode` dan `cwd_path`, diawali root (inode 1, `/`).
 
-Tidak ada syscall untuk mencari inode, jadi `dir_child` memakai sifat filesystem: `read_directory` dengan `name` dan `parent_inode` membaca folder tujuan, dan entri pertama folder selalu `.` yang berisi inode folder itu sendiri. Nama `..` bekerja dengan cara yang sama.
+`dir_child` membaca direktori per blok dan mencari entri berdasarkan namanya. Nama `..` dibaca dari blok pertama inode direktori saat ini.
 
 `walk` mengikuti path per komponen, mulai dari root bila path diawali `/`, atau dari CWD bila tidak:
 
@@ -96,27 +100,27 @@ Tidak ada syscall untuk mencari inode, jadi `dir_child` memakai sifat filesystem
 | Bentuk | Perilaku |
 | --- | --- |
 | `grep POLA` | Membaca keluaran stage sebelumnya; stage pertama: `grep: no input` |
-| `grep POLA FILE` | Membaca file (maksimal 16 KiB), relatif terhadap CWD |
+| `grep POLA FILE` | Membaca file (maksimal 64 KiB), relatif terhadap CWD |
 | Jumlah argumen lain | `usage: grep PATTERN [FILE]` |
 
 Bila FILE diberikan, masukan dari pipeline diabaikan. Pencocokan memakai substring biasa dan case-sensitive. Baris yang cocok ditulis utuh dengan `'\n'`, termasuk baris terakhir yang tidak punya `'\n'`. Tidak ada baris yang cocok bukan error.
 
 | Kode `read` | Pesan |
 | --- | --- |
-| 1 | `grep: FILE: not a file` |
+| 1 | `grep: FILE: is a directory` |
 | 2 | `grep: FILE: file too large` |
 | 3, atau path gagal di-resolve | `grep: FILE: not found` |
 | Lainnya | `grep: FILE: read failed` |
 
-`read` tidak mengembalikan ukuran file. Karena itu buffer dikosongkan dulu, lalu panjangnya dihitung dari byte bukan nol terakhir. Akibatnya, byte NUL di akhir file ikut terbuang.
+`grep` memakai pembaca file yang sama dengan `cat` dan mempertahankan panjang file sesuai data EXT2. Hasil yang cocok tetap tunduk pada batas 16 KiB per tahap pipeline.
 
 ## Panduan menulis command (untuk E)
 
 ```c
-// src/user/commands.h
+// src/header/user/commands.h
 int cmd_cat(int argc, char **argv, struct ShellIO *io);
 
-// src/user/shell.c, tambahkan satu baris di tabel commands
+// src/user-shell.c, tambahkan satu baris di tabel commands
 { "cat", cmd_cat },
 ```
 
@@ -172,7 +176,7 @@ Aturan:
 
 **Status per 19 November:** nomor 7–12, `struct SyscallProcessInfo`, dan wrapper-nya sudah ada. Kernel belum menangani nomor 7–12, karena case di `syscall_dispatch` memanggil API proses (A), scheduler (C), konsol baris status (C), dan CMOS (E) yang belum dibuat. Sampai saat itu, kernel menjawab -1, dan `crt0` berputar di tempat setelah `sys_exit`.
 
-## Command proses (`src/user/proc.c`)
+## Command proses (`src/user/command/process.c`)
 
 | Command | Perilaku | Pesan |
 | --- | --- | --- |
@@ -185,7 +189,7 @@ Path yang gagal di-resolve dan PID yang tidak valid tidak pernah dikirim ke kern
 ## Menjalankan test
 
 ```bash
-bash test/host/run_shell_tests.sh
+bash tests/host/run_shell_tests.sh
 ```
 
 Test memakai `ext2.c` asli di RAM disk, jadi resolusi path dan `grep` diuji terhadap filesystem sungguhan. Yang diganti hanya batas syscall. Command uji (`fruit`, `prefix`, dan lainnya) hanya ada di `shell_test.c` dan masuk lewat parameter tabel `shell_execute_commands`.
@@ -196,10 +200,10 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 
 | Batasan | Nilai | Akibat |
 | --- | --- | --- |
-| Panjang baris | 127 karakter | Ketikan berikutnya diabaikan |
+| Panjang baris | 127 karakter | Shell menolak seluruh baris bila batas terlewati |
 | Keluaran per stage | 16 KiB | Lebih dari itu: `pipeline: output too large`, tanpa keluaran parsial |
-| Ukuran file `grep` | 16 KiB | `file too large` |
-| Ukuran folder yang bisa dimasuki | 16 KiB (32 blok) | Folder lebih besar dianggap tidak ada |
+| Ukuran file `grep` | 64 KiB | `file too large` |
+| Direktori untuk `cp -r` dan `rm -r` | 16 KiB dan kedalaman 64 | Operasi rekursif memiliki batas buffer dan kedalaman |
 | Panjang path | 255 karakter | `shell_resolve_dir` gagal |
 | Tanda kutip | Tidak didukung | Argumen tidak bisa berisi spasi atau `\|` |
 | Riwayat dan edit dengan panah | Tidak ada | Tombol panah diabaikan |
@@ -209,19 +213,18 @@ Di checkout Windows dengan `core.autocrlf=true`, semua script `.sh` memakai CRLF
 Bagian ini awalnya milik A (build user, loader) dan C (penyambungan syscall). Karena anggota lain tidak bisa dihubungi, bagian ini dikerjakan oleh D.
 
 ```bash
-test -f bin/storage.bin || make disk
 make all insert-shell
-qemu-system-i386 -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso
+qemu-system-i386 -m 128M -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk -cdrom bin/OS2025.iso -boot order=d
 ```
 
 | Target `make` | Hasil |
 | --- | --- |
-| `user-shell` | `bin/shell`, binary flat untuk alamat 0. Objeknya di `bin/user/`, supaya tidak ikut di-link ke kernel |
+| `user-shell` | `bin/shell` untuk dimuat di alamat 0 dan `bin/shell_elf` untuk simbol GDB. Objeknya ada di `bin/user/`. |
 | `inserter` | `bin/inserter`, program laptop yang memakai `ext2.c` asli |
 | `insert-shell` | Memasukkan `bin/shell` ke root `bin/storage.bin`, menimpa versi lama |
 | `run` | Sekarang juga menjalankan `insert-shell` |
 
-`inserter <file> <parent_inode> <storage.bin>` bisa dipakai untuk file lain. Nama entrinya diambil dari nama file, dan area swap di belakang 4 MiB pertama tidak disentuh.
+`inserter <file-atau-folder> <parent_inode> <storage.bin>` menggunakan nama dasar input sebagai nama entri. Folder disalin rekursif ke folder baru. Folder tujuan yang sudah ada dan symbolic link ditolak. Inserter bekerja pada 4 MiB pertama ketika QEMU berhenti.
 
 ### Alur boot
 
@@ -234,7 +237,7 @@ kernel_setup
  │   ├─ petakan 0x0–0x3FFFF (256 KiB) dan 4 halaman stack di bawah 0xC0000000
  │   └─ read("shell") ke alamat 0
  └─ enter_user_mode(0, 0xC0000000)
-      └─ _start (crt0.c) → main (shell.c)
+      └─ _start (crt0.s) → main (user-shell.c)
 
 int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
 ```
@@ -246,24 +249,24 @@ int 0x30 → main_interrupt_handler → case SYSCALL_VECTOR → syscall_dispatch
 | `src/cpu/interrupt.c` | Case `SYSCALL_VECTOR` memanggil `syscall_dispatch` |
 | `src/cpu/gdt.c` | Stack TSS dari 4 KiB menjadi 64 KiB, karena `ext2.c` memakai buffer blok di stack |
 | `Makefile` | `syscall.c` ikut kernel; target `user-shell`, `inserter`, `insert-shell` |
-| `src/user/crt0.c` | `_start` di section `.text.entry`, lalu memanggil `main` |
-| `src/user/user-linker.ld` | Binary flat di alamat 0, dengan `ASSERT` ukuran |
-| `tools/inserter.c` | Inserter host. Ada di luar `src/` karena test QEMU meng-compile semua `src/**/*.c` ke kernel uji |
+| `src/crt0.s` | `_start` di section `.text.entry`, lalu memanggil `main` |
+| `src/user-linker.ld` | Binary flat di alamat 0, dengan `ASSERT` ukuran |
+| `src/external/external-inserter.c` | Inserter host. Hanya target `inserter` yang mengompilasinya; kernel dan kernel uji memakai daftar source kernel |
 
 Hal yang perlu diingat:
 
 - **Semua halaman dipetakan di awal.** `syscall_validate_user_range` hanya menerima halaman yang present, jadi buffer `.bss` tidak bisa menunggu page fault handler. Halaman baru selalu dikosongkan, sehingga `.bss` otomatis nol.
-- **Ukuran gambar program tetap 256 KiB.** `USER_IMAGE_SIZE` di `src/kernel.c` dan `ASSERT` di `user-linker.ld` harus sama. Build gagal bila program melewati batas ini. Saat ini shell memakai sekitar 4 KB kode dan 41 KB `.bss`.
+- **Ukuran gambar program tetap 256 KiB.** `USER_IMAGE_SIZE` di `src/kernel.c` dan `ASSERT` di `user-linker.ld` harus sama. Build gagal bila program melewati batas ini. Periksa ukuran aktual dengan `size bin/shell_elf`.
 - **Kalau `main` selesai, program berputar di `_start`**, karena syscall `exit` baru ada di Milestone 4.
 - **Kalau `/shell` tidak ada**, kernel menulis `tapOS: /shell not found, run: make insert-shell` lalu berhenti.
 
 ### Test QEMU
 
 ```bash
-bash test/qemu/run_shell_qemu.sh
+bash tests/qemu/run_shell_qemu.sh
 ```
 
-Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `test/qemu/shell_keys.py` mengetik lewat monitor QEMU (`sendkey`) dan membaca layar teks dari `0xB8000` (`pmemsave`).
+Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `tests/qemu/shell_keys.py` mengetik lewat monitor QEMU (`sendkey`) dan membaca layar teks dari `0xB8000` (`pmemsave`).
 
 | ID | Kasus |
 | --- | --- |
@@ -276,7 +279,7 @@ Script ini membuat disk sendiri, memasukkan `shell` dan file `notes`, lalu `test
 | Q07 | Pesan error parser |
 | Q08 | Prompt kembali setelah semua perintah |
 
-Layar terakhir disimpan di `bin/shell-qemu/screen.txt`. Langkah 5 dan 6 acceptance (`cat | grep`, prompt berubah setelah `cd`) menunggu command E.
+Q09–Q18 mencakup CRUD, pipeline `cat | grep`, perubahan CWD, persistensi setelah reboot, dan hasil impor folder. Layar dan log disimpan di `bin/shell-qemu-128/` secara default. Gunakan `bash tests/qemu/run_shell_qemu.sh 5` untuk menjalankan suite dengan RAM 5 MiB.
 
 ### Catatan untuk kode kernel
 

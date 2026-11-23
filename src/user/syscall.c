@@ -1,5 +1,5 @@
 #include "header/cpu/syscall.h"
-#include "user/syscall.h"
+#include "header/user/syscall.h"
 
 static inline int32_t sys_call(uint32_t eax, uint32_t ebx, uint32_t ecx, uint32_t edx) {
     int32_t ret;
@@ -53,4 +53,12 @@ int32_t sys_get_time(struct CMOSTime *out) {
 
 int32_t sys_write_status(const char *buf, uint32_t len, uint32_t col) {
     return sys_call(SYSCALL_WRITE_STATUS, (uint32_t)buf, len, col);
+}
+
+int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer) {
+    return sys_call(SYSCALL_READ_DIRECTORY_BLOCK, inode, index, (uint32_t)buffer);
+}
+
+int32_t sys_move(const struct EXT2MoveRequest *request) {
+    return sys_call(SYSCALL_MOVE, (uint32_t)request, 0, 0);
 }

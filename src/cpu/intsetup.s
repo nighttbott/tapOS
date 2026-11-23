@@ -4,8 +4,6 @@ global isr_stub_table
 ; Generic handler section for interrupt
 call_generic_handler:
     ; Expected stack state at this label
-    ; [esp + 24] ss  (Only for inter-privilege)
-    ; [esp + 20] esp (Only for inter-privilege)
     ; [esp + 16] eflags
     ; [esp + 12] cs
     ; [esp + 8 ] eip
@@ -32,8 +30,13 @@ call_generic_handler:
     mov gs, ax
     pop eax
 
-    ; Call the C function
+    cld
+    mov ebx, esp
+    and esp, -16
+    sub esp, 12
+    push ebx
     call main_interrupt_handler
+    mov esp, ebx
 
     ; Restore general-purpose & index register
     popad
@@ -52,10 +55,7 @@ call_generic_handler:
     ; [esp], [esp+4], [esp+8]
     ;   eip,   cs,    eflags
     ; Improper value will cause invalid return address & register
-    sti
     iret
-
-
 
 ; Macro for creating interrupt handler that only push interrupt number
 ; Stack will have these value that pushed automatically by CPU
@@ -136,8 +136,6 @@ no_error_code_interrupt_handler 31 ; 0x1F - Reserved
 no_error_code_interrupt_handler i
 %assign i i+1 
 %endrep
-
-
 
 ; ISR stub table, useful for reducing code repetition
 isr_stub_table:

@@ -4,7 +4,7 @@
 
 Sistem operasi sederhana untuk platform **x86 32-bit Protected Mode**, dikembangkan menggunakan C dan Assembly NASM sebagai Tugas Besar **IF2130 Sistem Operasi 2026/2027**.
 
-Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Milestone 3**.
+Implementasi ini mencakup kernel dan driver M1, EXT2 M2, serta paging, swap, Ring 3, syscall dan shell M3.
 
 ## Daftar Isi
 
@@ -42,7 +42,7 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 
 ### Milestone 2 — Filesystem
 
-- Disk driver ATA PIO dengan disk image raw berukuran 4 MiB.
+- Driver disk ATA PIO. Area filesystem menggunakan 4 MiB pertama dari disk image raw.
 - Filesystem EXT2 IF2130 Edition dengan ukuran blok 512 byte.
 - Inisialisasi filesystem baru dan pemuatan metadata filesystem yang sudah ada.
 - Operasi `read()`, `read_directory()`, `write()`, dan `delete()`.
@@ -62,13 +62,13 @@ Implementasi saat ini mencakup **Milestone 1, Milestone 2, dan sebagian Mileston
 
 ### Milestone 3 — Shell
 
-- Pembaca baris, parser, state CWD, resolusi path, pipeline, dan `grep` di `src/user/`.
+- REPL dan CWD di `src/user-shell.c`; parser, pipeline, dan command ada di `src/user/`.
+- Command `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`. Shell mendukung pipeline serta `cp -r` dan `rm -r` untuk folder.
 - Shell berjalan di Ring 3: syscall `int 0x30` tersambung, TSS aktif, dan kernel memuat `/shell` ke alamat 0.
-- Build program user (`make user-shell`) dan host inserter (`make insert-shell`).
-- Logika shell diuji di laptop (`bash test/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash test/qemu/run_shell_qemu.sh`).
+- Target `make user-shell` menghasilkan `bin/shell` dan `bin/shell_elf`. Target `make insert-shell` memasukkan shell melalui inserter host di `src/external/`.
+- Logika shell diuji di laptop (`bash tests/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash tests/qemu/run_shell_qemu.sh`).
 - Cara kerja, kontrak command, dan batasannya tersedia di [docs/shell.md](docs/shell.md).
 
-Build user, loader, dan penyambungan syscall awalnya dibagikan ke anggota lain. Karena anggota tersebut tidak dapat dihubungi, bagian ini dikerjakan oleh pemegang shell.
 
 ## Lingkungan Pengembangan
 
@@ -109,17 +109,11 @@ Hasil build:
 
 ### 3. Menyiapkan disk
 
-Buat disk hanya jika belum tersedia:
-
 ```bash
-test -f bin/storage.bin || make disk
+make disk
 ```
 
-Disk disimpan pada `bin/storage.bin`. Filesystem diinisialisasi otomatis ketika disk baru digunakan.
-
-`make disk` membuat disk 5 MiB: 4 MiB untuk filesystem dan 1 MiB untuk swap. Disk 4 MiB yang sudah ada dapat diperbesar tanpa menghapus isinya dengan `truncate -s 5M bin/storage.bin`.
-
-**Jangan menjalankan `make disk` kembali pada disk yang ingin dipertahankan karena perintah tersebut membuat ulang disk image.**
+Target ini membuat `bin/storage.bin` dengan kapasitas 5 MiB jika file belum tersedia. Filesystem menggunakan 4 MiB pertama dan swap menggunakan 1 MiB berikutnya. Untuk migrasi image M2 berukuran 4 MiB yang sudah diverifikasi, buat salinan cadangan, lalu perluas image dengan `truncate -s 5M bin/storage.bin`. Target `make insert-shell` juga menyiapkan atau memeriksa disk sebelum menulis.
 
 ### 4. Memasukkan shell ke disk
 
@@ -127,17 +121,20 @@ Disk disimpan pada `bin/storage.bin`. Filesystem diinisialisasi otomatis ketika 
 make insert-shell
 ```
 
-Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah.
+Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah. Target ini memakai `inserter -f` supaya binary shell lama bisa diganti.
+
+Untuk memasukkan file atau direktori lain, gunakan `bin/inserter <path> <parent_inode> bin/storage.bin`. Root memakai inode 1. Opsi `-f` mengizinkan penggantian file yang sudah ada. Direktori yang namanya bertabrakan ditolak. Konfigurasi **Inserter** di VS Code tersedia setelah `make disk user-shell`.
 
 ### 5. Menjalankan QEMU
 
 ```bash
 qemu-system-i386 \
+    -m 128M \
     -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk \
-    -cdrom bin/OS2025.iso
+    -cdrom bin/OS2025.iso -boot order=d
 ```
 
-Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command yang tersedia baru `grep`, dan pipeline dengan `|` sudah didukung. Detailnya ada di [docs/shell.md](docs/shell.md).
+Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command M3 mencakup `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`, dengan dukungan pipeline `|`. `exec`, `ps`, dan `kill` masih menunggu layanan proses kernel M4. Detailnya ada di [docs/shell.md](docs/shell.md).
 
 ### 6. Menjalankan dengan debugger
 
@@ -145,9 +142,9 @@ Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS
 make run
 ```
 
-Target ini menjalankan QEMU dengan opsi `-s -S`. GDB server tersedia pada port `1234`, dan CPU menunggu debugger sebelum melanjutkan eksekusi.
+Target ini menunggu debugger pada `127.0.0.1:1234` sebelum menjalankan CPU.
 
-Gunakan perintah QEMU pada langkah 4 untuk menjalankan OS langsung tanpa menunggu debugger.
+Gunakan perintah QEMU pada langkah 5 untuk menjalankan OS langsung. Jika RAM diubah, gunakan nilai `SYSTEM_MEMORY_MB` yang sama pada build dan QEMU.
 
 ### 7. Membersihkan hasil build
 
@@ -164,7 +161,7 @@ Jalankan pengujian dari folder utama repository.
 ### Host
 
 ```bash
-bash test/host/run_host_tests.sh
+bash tests/host/run_host_tests.sh
 ```
 
 Pengujian menjalankan implementasi filesystem pada RAM disk, memeriksa konsistensi image menggunakan FSCK, dan memastikan pembacaan fixture legacy tidak mengubah isinya.
@@ -172,7 +169,7 @@ Pengujian menjalankan implementasi filesystem pada RAM disk, memeriksa konsisten
 Jika LeakSanitizer tidak didukung oleh lingkungan eksekusi:
 
 ```bash
-ASAN_OPTIONS=detect_leaks=0 bash test/host/run_host_tests.sh
+ASAN_OPTIONS=detect_leaks=0 bash tests/host/run_host_tests.sh
 ```
 
 Hasil akhir yang diharapkan:
@@ -184,7 +181,7 @@ ALL HOST TESTS PASSED
 ### QEMU
 
 ```bash
-bash test/qemu/run_qemu_tests.sh
+bash tests/qemu/run_qemu_tests.sh
 ```
 
 Pengujian mencakup disk driver ATA, pembacaan filesystem, operasi tulis/hapus, dan persistensi melalui dua kali boot.
@@ -209,7 +206,7 @@ bin/qemu-test/<suite>/qemu.log
 Setelah pengujian QEMU selesai:
 
 ```bash
-python3 test/host/fsck.py \
+python3 tests/host/fsck.py \
     bin/qemu-test/boundary.bin \
     bin/qemu-test/delete.bin \
     bin/qemu-test/blank.bin \
@@ -218,14 +215,13 @@ python3 test/host/fsck.py \
 
 Setiap image harus menghasilkan `FSCK OK`.
 
-Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. Detail pengujian tersedia di [test/README.md](test/README.md).
+Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. Detail pengujian tersedia di [tests/README.md](tests/README.md).
 
 ## Batasan Saat Ini
 
 - Input keyboard menggunakan buffer satu karakter.
-- Filesystem diakses melalui interface kernel dan kernel pengujian.
 - Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
-- Baru `grep` yang tersedia di shell; `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, dan `find` belum ada.
-- Shell tidak mendukung tanda kutip, dan keluaran satu command dibatasi 16 KiB.
+- `cat`, `cp`, dan `grep` membaca file sampai 64 KiB. Keluaran tiap tahap dibatasi 16 KiB. `mv` mempertahankan inode dan data. Direktori tujuan mungkin memerlukan blok baru untuk entri namanya.
+- Parser shell menerima paling banyak 127 karakter per baris dan belum mendukung tanda kutip.
 - Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.
