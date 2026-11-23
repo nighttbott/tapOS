@@ -45,6 +45,23 @@ Run from the repo root. `<MiB>` is the RAM size, use 5 or 6. `<suite>` is `mem_s
 bash tests/qemu/run_mem_tests.sh <MiB> <suite>
 ```
 
+## Milestone 4 process syscalls
+
+```bash
+bash tests/qemu/run_mem_tests.sh 6 syscall_suite
+```
+
+S01–S10 call `syscall_dispatch` with a built frame: `ps` (`PROCESS_LIST`) contents, capacity and bad buffers, and `kill` results (init, unknown PID, twice, frames and swap back to the baseline). `exit` and killing yourself end in a context switch, so only `tests/qemu/run_m4_qemu.sh` covers them.
+
+## Milestone 4 clock and end to end
+
+```bash
+bash tests/host/run_cmos_test.sh
+bash tests/qemu/run_m4_qemu.sh
+```
+
+`run_cmos_test.sh` runs the real `src/driver/cmos.c` against a fake RTC: BCD and binary values, 12-hour times (12 AM and 12 PM), and a time that changes during the read. `run_m4_qemu.sh` boots the real kernel with `shell`, `hello`, `clock` and a `notes` file, and types through the monitor (P01–P12): `ps`, `exec hello`, the clock on the status row, `grep` while it runs, `kill`, the error messages, 20 `exec hello` in a row, the 16-process limit, and 60 s of the clock. The typing pause grows for the process-limit case because the keyboard holds one character and the shell gets one turn in every 16.
+
 ## Milestone 4 process lifecycle
 
 ```bash

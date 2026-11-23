@@ -69,6 +69,17 @@ Implementasi ini mencakup kernel dan driver M1, EXT2 M2, serta paging, swap, Rin
 - Logika shell diuji di laptop (`bash tests/host/run_shell_tests.sh`) dan di QEMU dengan input keyboard (`bash tests/qemu/run_shell_qemu.sh`).
 - Cara kerja, kontrak command, dan batasannya tersedia di [docs/shell.md](docs/shell.md).
 
+### Milestone 4 — Proses, Scheduler, dan Aplikasi
+
+- Shell menjadi proses PID 1 di page directory sendiri. Proses lain dibuat dari file ELF32 di filesystem lewat `exec`. Maksimal 16 proses, termasuk shell.
+- Scheduler round-robin digerakkan PIT (100 Hz) dengan context switch preemptive.
+- Syscall proses: `exit` (7), `exec` (8), `kill` (9), `process list` (10), `get time` (11), dan `write status` (12). `crt0` memanggil `exit` setelah `main` selesai.
+- Command shell `exec PATH`, `ps`, dan `kill PID`. PID 1 tidak bisa dihentikan; jika shell keluar, kernel berhenti dengan pesan.
+- Baris terakhir layar (baris 24) adalah status row, di luar area konsol. `clock` menulis `HH:MM:SS` di kolom 72–79 lewat syscall 12.
+- Aplikasi di `src/external/`: `hello` (mencetak `Hello, World!`) dan `clock`. Keduanya memakai `crt0` dan syscall, tanpa libc.
+- Driver CMOS (`src/driver/cmos.c`) membaca RTC, termasuk BCD, format 12 jam, dan pembacaan yang terpotong saat RTC memperbarui nilainya.
+- Pengujian: `bash tests/qemu/run_m4_qemu.sh` (P01–P12 lewat keyboard QEMU), `bash tests/qemu/run_mem_tests.sh 6 syscall_suite` dan `process_suite` (tingkat kernel), serta `bash tests/host/run_cmos_test.sh`.
+
 
 ## Lingkungan Pengembangan
 
@@ -123,6 +134,14 @@ make insert-shell
 
 Perintah ini membangun `bin/shell` dan memasukkannya ke root `bin/storage.bin`. Jalankan kembali setiap kali kode shell berubah. Target ini memakai `inserter -f` supaya binary shell lama bisa diganti.
 
+Untuk memasukkan shell beserta `hello` dan `clock`, gunakan:
+
+```bash
+make insert-apps
+```
+
+`make run` sudah memakai `insert-apps`.
+
 Untuk memasukkan file atau direktori lain, gunakan `bin/inserter <path> <parent_inode> bin/storage.bin`. Root memakai inode 1. Opsi `-f` mengizinkan penggantian file yang sudah ada. Direktori yang namanya bertabrakan ditolak. Konfigurasi **Inserter** di VS Code tersedia setelah `make disk user-shell`.
 
 ### 5. Menjalankan QEMU
@@ -131,10 +150,11 @@ Untuk memasukkan file atau direktori lain, gunakan `bin/inserter <path> <parent_
 qemu-system-i386 \
     -m 128M \
     -drive file=bin/storage.bin,format=raw,if=ide,index=0,media=disk \
+    -rtc base=localtime \
     -cdrom bin/OS2025.iso -boot order=d
 ```
 
-Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command M3 mencakup `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`, dengan dukungan pipeline `|`. `exec`, `ps`, dan `kill` masih menunggu layanan proses kernel M4. Detailnya ada di [docs/shell.md](docs/shell.md).
+Opsi `-rtc base=localtime` membuat `clock` menampilkan waktu lokal, bukan UTC. Kernel memuat `/shell` ke alamat 0, lalu menjalankannya di Ring 3. Prompt `tapOS:/$ ` akan muncul. Command M3 mencakup `cd`, `ls`, `mkdir`, `cat`, `cp`, `rm`, `mv`, `find`, dan `grep`, dengan dukungan pipeline `|`. `exec`, `ps`, dan `kill` mengelola proses, misalnya `exec hello` atau `exec clock`. Detailnya ada di [docs/shell.md](docs/shell.md).
 
 ### 6. Menjalankan dengan debugger
 
@@ -220,8 +240,9 @@ Skrip pengujian menggunakan image terpisah dan tidak menimpa `bin/storage.bin`. 
 ## Batasan Saat Ini
 
 - Input keyboard menggunakan buffer satu karakter.
-- Kernel hanya menjalankan satu program user, yaitu `/shell`, dengan ukuran maksimal 256 KiB. Belum ada syscall `exit`.
+- `/shell` dimuat sebagai gambar datar maksimal 256 KiB. Program lain harus berformat ELF32 dengan entry di alamat 0, maksimal 28 KiB, dan hanya mendapat 1 halaman stack.
+- Tidak ada syscall `sleep`, jadi `clock` menunggu dengan polling. Semua proses yang berjalan berbagi CPU secara rata, sehingga makin banyak `clock` yang aktif, makin lambat shell membaca tombol. Dengan buffer keyboard satu karakter, ketikan bisa hilang bila banyak proses berjalan sekaligus.
+- Tahun dari RTC dihitung sebagai 2000 ditambah dua digit terakhirnya.
 - `cat`, `cp`, dan `grep` membaca file sampai 64 KiB. Keluaran tiap tahap dibatasi 16 KiB. `mv` mempertahankan inode dan data. Direktori tujuan mungkin memerlukan blok baru untuk entri namanya.
 - Parser shell menerima paling banyak 127 karakter per baris dan belum mendukung tanda kutip.
-- Process management dan scheduler merupakan pengembangan milestone berikutnya.
 - Filesystem mengikuti format EXT2 IF2130 Edition dan tidak ditujukan untuk dipasang menggunakan driver EXT2 standar Linux.
