@@ -39,4 +39,13 @@ void graphics_fill_rect(int32_t x, int32_t y, int32_t width, int32_t height, uin
  */
 void graphics_draw_glyph(int32_t x, int32_t y, uint8_t character, uint32_t scale, uint32_t color);
 
+/**
+ * Shows a 1 bit per pixel image (bit i = byte i/8, bit i%8; set = white) as large as fits, centred.
+ * The first call after graphics_end_blit() blanks the whole screen. False when not in graphics mode.
+ */
+bool graphics_blit_bits(const uint8_t *bits, uint32_t width, uint32_t height);
+
+/** Makes the next graphics_blit_bits() blank the screen again. */
+void graphics_end_blit(void);
+
 #endif

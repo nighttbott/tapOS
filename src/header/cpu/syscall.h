@@ -22,6 +22,10 @@ enum SyscallNumber {
     SYSCALL_READ_DIRECTORY_BLOCK = 13,
     SYSCALL_MOVE = 14,
     SYSCALL_FIND = 15,
+    SYSCALL_GET_TICKS = 24,   /* PIT ticks since boot, 100 per second */
+    SYSCALL_READ_RANGE = 25,  /* like READ_FILE from byte offset ecx; returns bytes read */
+    SYSCALL_BLIT_BITS = 26,   /* ebx = 1 bit per pixel image, ecx = width, edx = height */
+    SYSCALL_REDRAW = 27,      /* paint the text screen again after BLIT_BITS */
 };
 
 /* SYSCALL_FIND: paths of every entry called `name` in the whole file system, one per line. */

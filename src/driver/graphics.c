@@ -166,3 +166,42 @@ void graphics_draw_glyph(int32_t x, int32_t y, uint8_t character, uint32_t scale
                 graphics_fill_rect(x + (int32_t)(col * scale), y + (int32_t)(row * scale),
                                    (int32_t)scale, (int32_t)scale, color);
 }
+
+static bool blit_started;
+
+bool graphics_blit_bits(const uint8_t *bits, uint32_t width, uint32_t height) {
+    if (linear_framebuffer == NULL || width == 0 || height == 0 || width > GRAPHICS_WIDTH ||
+        height > GRAPHICS_HEIGHT)
+        return false;
+    uint32_t scale = GRAPHICS_WIDTH / width < GRAPHICS_HEIGHT / height ? GRAPHICS_WIDTH / width
+                                                                      : GRAPHICS_HEIGHT / height;
+    int32_t left = (int32_t)(GRAPHICS_WIDTH - width * scale) / 2;
+    int32_t top = (int32_t)(GRAPHICS_HEIGHT - height * scale) / 2;
+
+    if (!blit_started) {
+        graphics_fill_rect(0, 0, (int32_t)GRAPHICS_WIDTH, (int32_t)GRAPHICS_HEIGHT, 0);
+        blit_started = true;
+    }
+    for (uint32_t y = 0; y < height; y++) {
+        uint32_t x = 0;
+        while (x < width) {
+            uint32_t index = y * width + x;
+            uint32_t bit = (bits[index / 8u] >> (index % 8u)) & 1u;
+            uint32_t run = 1;
+            while (x + run < width) {
+                uint32_t next = index + run;
+                if (((bits[next / 8u] >> (next % 8u)) & 1u) != bit)
+                    break;
+                run++;
+            }
+            graphics_fill_rect(left + (int32_t)(x * scale), top + (int32_t)(y * scale), (int32_t)(run * scale),
+                               (int32_t)scale, bit ? 0x00FFFFFFu : 0u);
+            x += run;
+        }
+    }
+    return true;
+}
+
+void graphics_end_blit(void) {
+    blit_started = false;
+}

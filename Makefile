@@ -85,7 +85,7 @@ $(OUTPUT_FOLDER)/$(DISK_NAME).bin:
 	@mkdir -p $(OUTPUT_FOLDER)
 	@qemu-img create -f raw $@ 5M
 
-USER_PROGRAMS = shell $(foreach app,hello clock,$(if $(wildcard $(SOURCE_FOLDER)/$(USER_SOURCES_$(app))),$(app)))
+USER_PROGRAMS = shell $(foreach app,hello clock badapple,$(if $(wildcard $(SOURCE_FOLDER)/$(USER_SOURCES_$(app))),$(app)))
 USER_COMMON   = user/syscall.c stdlib/string.c
 SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
                        user/command/navigation.c user/command/file.c user/command/find.c \
@@ -93,6 +93,7 @@ SHELL_MODULE_SOURCES = user/shell-parser.c user/shell-pipeline.c user/fsutil.c \
 USER_SOURCES_shell = user-shell.c $(SHELL_MODULE_SOURCES)
 USER_SOURCES_hello = external/hello.c
 USER_SOURCES_clock = external/clock.c
+USER_SOURCES_badapple = external/badapple.c badapple/player.c
 .PHONY: $(addprefix user-,$(USER_PROGRAMS))
 $(addprefix user-,$(USER_PROGRAMS)): user-%:
 	@rm -rf $(OUTPUT_FOLDER)/user/$* && mkdir -p $(OUTPUT_FOLDER)/user/$*
@@ -130,3 +131,5 @@ insert-apps: user-apps inserter | disk
 	@for p in $(USER_PROGRAMS); do \
 		./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
 	done
+
+-include bad-apple.mk

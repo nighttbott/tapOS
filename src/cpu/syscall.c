@@ -4,6 +4,7 @@
 #include "header/cpu/scheduler.h"
 #include "header/cpu/syscall.h"
 #include "header/driver/cmos.h"
+#include "header/driver/graphics.h"
 #include "header/driver/keyboard.h"
 #include "header/filesystem/ext2.h"
 #include "header/filesystem/index.h"
@@ -347,6 +348,29 @@ void syscall_dispatch(struct InterruptFrame *frame) {
                 result = ext2_move(&move);
             break;
         }
+        case SYSCALL_GET_TICKS:
+            result = (int32_t)pit_get_ticks();
+            break;
+        case SYSCALL_READ_RANGE:
+            if (syscall_copy_request(argument, &request, true) == 0) {
+                uint32_t copied = 0;
+                result = ext2_read_range(request, frame->cpu.general.ecx, &copied) == 0 ? (int32_t)copied : -1;
+            }
+            break;
+        case SYSCALL_BLIT_BITS: {
+            uint32_t width = frame->cpu.general.ecx;
+            uint32_t height = frame->cpu.general.edx;
+            if (width == 0 || height == 0 || width > GRAPHICS_WIDTH || height > GRAPHICS_HEIGHT ||
+                !syscall_validate_user_range((void *)argument, (width * height + 7u) / 8u, false))
+                break;
+            result = graphics_blit_bits((const uint8_t *)argument, width, height) ? 0 : -1;
+            break;
+        }
+        case SYSCALL_REDRAW:
+            graphics_end_blit();
+            framebuffer_redraw();
+            result = 0;
+            break;
         case SYSCALL_FIND: {
             struct SyscallFindRequest find;
             if (!syscall_validate_user_range((void *)argument, sizeof(find), true))

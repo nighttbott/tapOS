@@ -26,5 +26,9 @@ int32_t sys_move(const struct EXT2MoveRequest *request);
 
 /* Number of matches (see header/filesystem/index.h for the negative codes). */
 int32_t sys_find(struct SyscallFindRequest *request);
+uint32_t sys_get_ticks(void);
+int32_t sys_read_range(struct EXT2DriverRequest *req, uint32_t offset);
+int32_t sys_blit_bits(const uint8_t *bits, uint32_t width, uint32_t height);
+void    sys_redraw(void);
 
 #endif

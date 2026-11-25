@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "fs_test.h"
 #include "ram_disk.h"
@@ -24,6 +25,7 @@ extern uint32_t mock_kill_pid;
 extern int mock_kill_calls;
 extern struct SyscallProcessInfo mock_ps[16];
 extern int32_t mock_ps_count;
+extern int mock_redraw_calls;
 
 static struct FsTestContext ctx;
 static int commands_run;
@@ -437,6 +439,19 @@ static void proc_cases(void) {
     check_output("H19", "no argument", "usage: exec PATH\n");
     run_real("exec a b");
     check_output("H19", "two arguments", "usage: exec PATH\n");
+
+    mock_exec = (struct MockExec) { .result = 0, .pid = 9 };
+    mock_ps_count = 0;
+    mock_redraw_calls = 0;
+    check("H22", "run waits for the program, then repaints", run_real("run clock") == 0 && mock_output_len == 0 &&
+          mock_exec.calls == 1 && strcmp(mock_exec.name, "clock") == 0 && mock_redraw_calls == 1);
+    mock_exec = (struct MockExec) { .result = 2 };
+    mock_redraw_calls = 0;
+    run_real("run notes");
+    check("H22", "run reports exec errors without repainting",
+          strcmp(mock_output, "run: notes: not an executable\n") == 0 && mock_redraw_calls == 0);
+    run_real("run");
+    check_output("H22", "run without argument", "usage: run PATH\n");
 
     mock_ps_count = 3;
     set_ps_row(0, 1, 2, "shell");
