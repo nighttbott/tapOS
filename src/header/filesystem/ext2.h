@@ -317,6 +317,9 @@ int8_t read(struct EXT2DriverRequest request);
 /* Same read operation, with the number of bytes copied on success. */
 int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out);
 
+/* Reads at most buffer_size bytes starting at byte offset; size_out is what was copied (0 at the end). */
+int8_t ext2_read_range(struct EXT2DriverRequest request, uint32_t offset, uint32_t *size_out);
+
 int8_t write(struct EXT2DriverRequest *request);
 
 /**

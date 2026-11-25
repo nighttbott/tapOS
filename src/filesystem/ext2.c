@@ -1526,12 +1526,16 @@ static int8_t ext2_add_directory_entry(uint32_t parent_inode_number,
     return 0;
 }
 
-int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out) {
+/* Reads the whole file (offset ignored), or up to buffer_size bytes from offset when whole is false. */
+static int8_t ext2_read_from(struct EXT2DriverRequest request, uint32_t offset, bool whole,
+                             uint32_t *size_out) {
     struct EXT2ReadContext context;
     struct EXT2DirectoryEntry entry;
     struct EXT2Inode inode;
     int8_t result;
-    uint32_t bytes_read = 0;
+    uint32_t start = 0;
+    uint32_t end;
+    uint32_t position;
 
     if (!ext2_valid_name(request.name, request.name_len)) {
         return -1;
@@ -1563,7 +1567,7 @@ int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out) {
     if ((inode.i_mode & 0xF000u) != EXT2_S_IFREG) {
         return 1;
     }
-    if (request.buffer_size < inode.i_size) {
+    if (whole && request.buffer_size < inode.i_size) {
         return 2;
     }
     if (inode.i_size > DISK_SPACE ||
@@ -1572,28 +1576,44 @@ int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out) {
         return -1;
     }
 
-    while (bytes_read < inode.i_size) {
-        struct BlockBuffer data_block;
-        uint32_t logical_block = bytes_read / BLOCK_SIZE;
-        uint32_t block_number;
-        uint32_t bytes_to_copy = inode.i_size - bytes_read;
-
-        if (bytes_to_copy > BLOCK_SIZE) {
-            bytes_to_copy = BLOCK_SIZE;
+    end = inode.i_size;
+    if (!whole) {
+        start = offset < end ? offset : end;
+        if (end - start > request.buffer_size) {
+            end = start + request.buffer_size;
         }
-        if (!ext2_get_data_block(&context, &inode, logical_block,
+    }
+
+    for (position = start; position < end;) {
+        struct BlockBuffer data_block;
+        uint32_t block_number;
+        uint32_t inside = position % BLOCK_SIZE;
+        uint32_t bytes_to_copy = BLOCK_SIZE - inside;
+
+        if (bytes_to_copy > end - position) {
+            bytes_to_copy = end - position;
+        }
+        if (!ext2_get_data_block(&context, &inode, position / BLOCK_SIZE,
                                  &block_number)) {
             return -1;
         }
         read_blocks(&data_block, block_number, 1);
-        memcpy((uint8_t *)request.buf + bytes_read, data_block.buf,
-               bytes_to_copy);
-        bytes_read += bytes_to_copy;
+        memcpy((uint8_t *)request.buf + (position - start),
+               data_block.buf + inside, bytes_to_copy);
+        position += bytes_to_copy;
     }
 
     if (size_out != NULL)
-        *size_out = bytes_read;
+        *size_out = end - start;
     return 0;
+}
+
+int8_t ext2_read_file(struct EXT2DriverRequest request, uint32_t *size_out) {
+    return ext2_read_from(request, 0, true, size_out);
+}
+
+int8_t ext2_read_range(struct EXT2DriverRequest request, uint32_t offset, uint32_t *size_out) {
+    return ext2_read_from(request, offset, false, size_out);
 }
 
 int8_t read(struct EXT2DriverRequest request) {

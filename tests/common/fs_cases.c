@@ -235,6 +235,20 @@ static const char *const boundary_what[] = {
     "read s71680 (last single-indirect block)", "read s71681 (first double-indirect block)",
 };
  
+static void check_range(struct FsTestContext *ctx, const char *id, const char *what,
+                        uint32_t offset, uint32_t want, uint32_t expected_count) {
+    const uint32_t size = 71681;
+    struct EXT2DriverRequest r = make_req(big, "s71681", ROOT_INODE, want, false);
+    uint32_t copied = 0xFFFFu;
+    int8_t rc = ext2_read_range(r, offset, &copied);
+    bool ok = rc == 0 && copied == expected_count;
+
+    for (uint32_t i = 0; ok && i < copied; i++) {
+        ok = big[i] == fs_test_pattern(offset + i, size);
+    }
+    fs_test_check(ctx, id, what, ok, (int32_t) expected_count, rc == 0 ? (int32_t) copied : rc);
+}
+
 void fs_suite_boundary(struct FsTestContext *ctx) {
     char name[16];
     struct EXT2DriverRequest r;
@@ -257,6 +271,12 @@ void fs_suite_boundary(struct FsTestContext *ctx) {
     rc = read(r);
     fs_test_check(ctx, "B11", "read s513 into a 512-byte buffer -> 2", rc == 2, 2, rc);
  
+    check_range(ctx, "Q01", "range read from the start", 0, 100, 100);
+    check_range(ctx, "Q02", "range read across a block boundary", 510, 5, 5);
+    check_range(ctx, "Q03", "range read across the direct/indirect boundary", 6100, 100, 100);
+    check_range(ctx, "Q04", "range read stops at the end of the file", 71600, 500, 81);
+    check_range(ctx, "Q05", "range read past the end copies nothing", 80000, 64, 0);
+
     docs = find_inode(ROOT_INODE, "docs");
     a = docs ? find_inode(docs, "a") : 0;
     b = a ? find_inode(a, "b") : 0;
