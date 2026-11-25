@@ -35,7 +35,7 @@ KERNEL_OBJECTS = $(addprefix $(OUTPUT_FOLDER)/,$(notdir $(KERNEL_ASM_SOURCES:.s=
         kernel-c-sources kernel-asm-sources shell-module-sources shell_elf
 
 run: all insert-apps
-	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -rtc base=localtime -gdb tcp:127.0.0.1:1234 -S -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso -boot order=d
+	qemu-system-i386 -m $(SYSTEM_MEMORY_MB)M -rtc base=localtime -gdb tcp:127.0.0.1:1234 -drive file=$(OUTPUT_FOLDER)/$(DISK_NAME).bin,format=raw,if=ide,index=0,media=disk -cdrom $(OUTPUT_FOLDER)/$(ISO_NAME).iso -boot order=d
 all: build
 build: iso
 clean:

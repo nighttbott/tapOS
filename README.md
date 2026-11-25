@@ -162,7 +162,7 @@ Opsi `-rtc base=localtime` membuat `clock` menampilkan waktu lokal, bukan UTC. K
 make run
 ```
 
-Target ini menunggu debugger pada `127.0.0.1:1234` sebelum menjalankan CPU.
+Target ini langsung menjalankan OS tanpa berhenti. Debugger tetap bisa terhubung ke `127.0.0.1:1234` kapan saja.
 
 Gunakan perintah QEMU pada langkah 5 untuk menjalankan OS langsung. Jika RAM diubah, gunakan nilai `SYSTEM_MEMORY_MB` yang sama pada build dan QEMU.
 
