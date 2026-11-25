@@ -130,3 +130,5 @@ insert-apps: user-apps inserter | disk
 	@for p in $(USER_PROGRAMS); do \
 		./$(OUTPUT_FOLDER)/inserter -f $(OUTPUT_FOLDER)/$$p 1 $(OUTPUT_FOLDER)/$(DISK_NAME).bin || exit 1; \
 	done
+
+-include bad-apple.mk
