@@ -254,7 +254,7 @@ static void cwd_cases(void) {
 
     reset_output();
     shell_print_prompt();
-    check_output("H08", "prompt shows the CWD", "tapOS:/docs/a$ ");
+    check_output("H08", "prompt shows the CWD", "\x1F" "tap" "\x1E" "OS" "\x17" ":" "\x1B" "/docs/a" "\x1F" "$ ");
 
     memset(too_long, 'x', SHELL_PATH_MAX);
     too_long[SHELL_PATH_MAX] = '\0';
@@ -527,7 +527,7 @@ static void cd_cases(void) {
     check("H24", "cd .. goes up", shell_cwd_inode() == docs && strcmp(shell_cwd_path(), "/docs") == 0);
     reset_output();
     shell_print_prompt();
-    check_output("H24", "prompt follows cd", "tapOS:/docs$ ");
+    check_output("H24", "prompt follows cd", "\x1F" "tap" "\x1E" "OS" "\x17" ":" "\x1B" "/docs" "\x1F" "$ ");
     run_real("cd");
     check("H24", "cd alone goes to root", shell_cwd_inode() == SHELL_ROOT_INODE &&
           strcmp(shell_cwd_path(), "/") == 0);
