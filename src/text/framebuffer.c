@@ -43,6 +43,16 @@ bool framebuffer_enable_graphics(void) {
 }
 #endif
 
+void framebuffer_redraw(void) {
+#ifndef FRAMEBUFFER_TEST
+    if (graphics_active) {
+        for (uint8_t row = 0; row < FRAMEBUFFER_HEIGHT; row++)
+            for (uint8_t col = 0; col < FRAMEBUFFER_WIDTH; col++)
+                draw_cell(row, col);
+    }
+#endif
+}
+
 void framebuffer_hide_cursor(void) {
 #ifndef FRAMEBUFFER_TEST
     if (graphics_active) {

@@ -63,6 +63,9 @@ void framebuffer_scroll_up(void);
  */
 void framebuffer_hide_cursor(void);
 
+/** Paints every text cell again (after a program drew pixels over the console). */
+void framebuffer_redraw(void);
+
 #ifndef FRAMEBUFFER_TEST
 /**
  * Tries to switch the display from text mode 3h to the 640x400 colour graphics mode.

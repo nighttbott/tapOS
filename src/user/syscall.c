@@ -66,3 +66,19 @@ int32_t sys_move(const struct EXT2MoveRequest *request) {
 int32_t sys_find(struct SyscallFindRequest *request) {
     return sys_call(SYSCALL_FIND, (uint32_t)request, 0, 0);
 }
+
+uint32_t sys_get_ticks(void) {
+    return (uint32_t)sys_call(SYSCALL_GET_TICKS, 0, 0, 0);
+}
+
+int32_t sys_read_range(struct EXT2DriverRequest *req, uint32_t offset) {
+    return sys_call(SYSCALL_READ_RANGE, (uint32_t)req, offset, 0);
+}
+
+int32_t sys_blit_bits(const uint8_t *bits, uint32_t width, uint32_t height) {
+    return sys_call(SYSCALL_BLIT_BITS, (uint32_t)bits, width, height);
+}
+
+void sys_redraw(void) {
+    sys_call(SYSCALL_REDRAW, 0, 0, 0);
+}
