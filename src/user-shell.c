@@ -193,9 +193,12 @@ bool shell_read_line(char *line) {
 }
 
 void shell_print_prompt(void) {
-    print("tapOS:");
+    print("\x1F" "tap");
+    print("\x1E" "OS");
+    print("\x17" ":");
+    print("\x1B");
     print(cwd_path);
-    print("$ ");
+    print("\x1F" "$ ");
 }
 
 int main(void) {

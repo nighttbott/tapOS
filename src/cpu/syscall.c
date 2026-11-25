@@ -88,7 +88,13 @@ static bool syscall_validate_user_range(const void *address, uint32_t size,
     }
 }
 
+static uint8_t console_fg = 0x0F;
+
 static void syscall_write_char(char character) {
+    if ((uint8_t)character >= 0x10u && (uint8_t)character <= 0x1Fu) {
+        console_fg = (uint8_t)character & 0x0Fu;
+        return;
+    }
     if (character == '\n') {
         console_col = 0;
         console_row++;
@@ -103,7 +109,7 @@ static void syscall_write_char(char character) {
         console_col--;
         framebuffer_write(console_row, console_col, ' ', 0x0F, 0x00);
     } else if (character >= ' ') {
-        framebuffer_write(console_row, console_col, character, 0x0F, 0x00);
+        framebuffer_write(console_row, console_col, character, console_fg, 0x00);
         console_col++;
     }
 
