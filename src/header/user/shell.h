@@ -42,6 +42,7 @@ int      shell_strcmp(const char *a, const char *b);
 
 int cmd_grep(int argc, char **argv, struct ShellIO *io);
 int cmd_exec(int argc, char **argv, struct ShellIO *io);
+int cmd_run(int argc, char **argv, struct ShellIO *io);
 int cmd_ps(int argc, char **argv, struct ShellIO *io);
 int cmd_kill(int argc, char **argv, struct ShellIO *io);
 

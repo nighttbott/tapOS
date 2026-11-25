@@ -86,6 +86,12 @@ int32_t sys_process_list(struct SyscallProcessInfo *buf, uint32_t capacity) {
     return count;
 }
 
+int mock_redraw_calls;
+
+void sys_redraw(void) {
+    mock_redraw_calls++;
+}
+
 int32_t sys_read_dir_block(uint32_t inode, uint32_t index, void *buffer) {
     return ext2_read_directory_block(inode, index, buffer);
 }
