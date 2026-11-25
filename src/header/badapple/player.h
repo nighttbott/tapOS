@@ -11,7 +11,7 @@
 struct BaPlatform {
     uint32_t (*now_ms)(void);
     int32_t  (*read)(uint32_t offset, void *buffer, uint32_t size);   /* bytes read, or -1 */
-    int32_t  (*show)(const uint32_t *pixels, uint32_t width, uint32_t height);
+    int32_t  (*show)(const uint8_t *bits, uint32_t width, uint32_t height);
     int      (*stop_requested)(void);
     void     (*wait)(void);
 };
@@ -25,8 +25,8 @@ struct BaStats {
     int      stopped;
 };
 
-/* pixels needs width*height words, buffer needs max_len + 2 bytes. Returns 0 or a BA_ERR code. */
-int32_t ba_play(const struct BaPlatform *platform, uint32_t *pixels, uint32_t pixel_capacity,
+/* bits needs width*height/8 bytes, buffer needs max_len + 2 bytes. Returns 0 or a BA_ERR code. */
+int32_t ba_play(const struct BaPlatform *platform, uint8_t *bits, uint32_t bits_capacity,
                 uint8_t *buffer, uint32_t buffer_capacity, struct BaStats *stats);
 
 #endif

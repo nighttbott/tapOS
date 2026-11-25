@@ -8,12 +8,11 @@
  *   header: "BAPL", u16 width, u16 height, u16 fps, u16 max_len, u32 frames (little endian)
  *   record: u16 len, then len bytes of run lengths (7 bit groups, low first, bit 7 = more)
  * Runs alternate black, white, black... and always start with black (the first run may be 0).
- * Each frame is stored as a change from the previous one, so a run of white means "flip these
- * pixels". The first frame is a change from an all black screen.
+ * Pixels are bits (bit i is byte i/8, bit i%8, the layout SYSCALL_BLIT_BITS takes). Each frame is stored
+ * as a change from the previous one, so a run of white means "flip these pixels". The first frame is a change from an all black screen.
  */
 
 #define BA_HEADER_SIZE 16u
-#define BA_WHITE       0x00FFFFFFu
 
 struct BaHeader {
     uint16_t width;
@@ -44,8 +43,8 @@ static inline int32_t ba_parse_header(const uint8_t *data, uint32_t size, struct
     return (out->width == 0 || out->height == 0 || out->fps == 0 || out->max_len == 0) ? -1 : 0;
 }
 
-/* Applies one frame record to pixels[count]. 0 on success, -1 if the runs do not fit exactly. */
-static inline int32_t ba_decode_frame(const uint8_t *rle, uint32_t len, uint32_t *pixels, uint32_t count) {
+/* Applies one frame record to the bits of count pixels. 0 on success, -1 if the runs do not fit exactly. */
+static inline int32_t ba_decode_frame(const uint8_t *rle, uint32_t len, uint8_t *bits, uint32_t count) {
     uint32_t pos = 0, i = 0, white = 0;
 
     while (i < len) {
@@ -66,7 +65,7 @@ static inline int32_t ba_decode_frame(const uint8_t *rle, uint32_t len, uint32_t
         }
         if (white) {
             for (uint32_t k = 0; k < run; k++) {
-                pixels[pos + k] ^= BA_WHITE;
+                bits[(pos + k) / 8u] ^= (uint8_t)(1u << ((pos + k) % 8u));
             }
         }
         pos += run;

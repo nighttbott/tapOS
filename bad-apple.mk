@@ -1,6 +1,4 @@
-# Bad Apple data and player. Not wired into USER_PROGRAMS yet: the player needs the DOOM branch's
-# syscalls and its large program format (see src/external/badapple.c). After rebasing, add the app
-# the same way DOOM does and run `make apple-data VIDEO=path/to/bad_apple.mp4` then insert apple.dat.
+# Bad Apple data. The player itself is the user program `badapple` (see Makefile); play it with `run badapple`.
 
 APPLE_DATA = $(OUTPUT_FOLDER)/apple.dat
 

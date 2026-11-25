@@ -35,7 +35,10 @@ def frames_from(source, width, height, fps, raw):
     else:
         cmd = ["ffmpeg", "-v", "error", "-i", source, "-vf", f"fps={fps},scale={width}:{height}:flags=area",
                "-pix_fmt", "gray", "-f", "rawvideo", "-"]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            sys.exit("ffmpeg not found: install it (winget install Gyan.FFmpeg) and open a new terminal")
         stream = proc.stdout
     while True:
         data = stream.read(size)
@@ -71,6 +74,8 @@ def main():
         sys.exit("no frames read")
 
     max_len = max(len(r) for r in records)
+    if max_len > 2046:
+        sys.exit(f"longest frame is {max_len} bytes, the player buffer holds 2046: use a smaller --size or a higher --threshold")
     with open(args.output, "wb") as f:
         f.write(b"BAPL" + struct.pack("<HHHHI", width, height, args.fps, max_len, len(records)))
         for r in records:
